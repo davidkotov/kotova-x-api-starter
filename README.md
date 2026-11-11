@@ -71,7 +71,9 @@ visitors; the details go to the server log.
   code), progress, transactions with explorer links, what to do when the order needs
   attention, and the notice of the source that executes the order. It refreshes every
   15 seconds until the order is final.
-- **Options**: freeze protection and switching sources off.
+- **Options**: freeze protection and switching sources off. Switching freeze protection
+  on also switches to the variable rate when no source that cannot freeze funds offers
+  a fixed rate (today Chainflip, variable only), as on app.kotova.io.
 
 ## API contract: pinned to /x/v1
 

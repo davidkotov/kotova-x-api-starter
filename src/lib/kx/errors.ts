@@ -54,7 +54,7 @@ const TRIED_REASON: Record<string, string> = {
 const NO_SOURCE_REASON: Record<string, string> = {
   excluded_by_request: 'switched off by you',
   freeze_protection: 'left out by freeze protection',
-  rate_type_unsupported: 'no such rate type',
+  rate_type_unsupported: "doesn't offer this rate type",
   end_user_ip_required: "needs the end user's IP",
   refund_address_required: 'needs a refund address',
   create_budget_exhausted: 'not taking API orders right now',

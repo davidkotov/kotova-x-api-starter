@@ -193,9 +193,16 @@ export default function SwapForm() {
     setRateTypeState(next);
     writePref('rate_type', next);
   };
+  // Freeze protection keeps only sources that cannot freeze funds. If none of
+  // them offers a fixed rate (today the only one, Chainflip, is variable only),
+  // a fixed-rate quote can never succeed, so switching freeze protection on
+  // also switches to the variable rate. Only on that click: a stored "fixed"
+  // is never changed on page load.
   const toggleFreeze = (on: boolean) => {
     setFreezeProtection(on);
     writePref('freeze_protection', on ? 'true' : null);
+    const fixedWithoutFreeze = !catalog?.sources.some((s) => s.freeze_protection && s.rate_types.includes('fixed'));
+    if (on && rateType === 'fixed' && fixedWithoutFreeze) setRateType('variable');
   };
   const toggleRetry = (on: boolean) => {
     setRetryFallback(on);
@@ -716,6 +723,12 @@ export default function SwapForm() {
   const decimalOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? trimAmount(v) : null);
   const minFrom = decimalOrNull(quoteErrorRaw?.code === 'amount_below_min' ? quoteErrorRaw.details.min_from_amount : liveQuote?.limits.min_from_amount);
   const maxFrom = decimalOrNull(quoteErrorRaw?.code === 'amount_above_max' ? quoteErrorRaw.details.max_from_amount : liveQuote?.limits.max_from_amount);
+  // A fixed-rate quote failed because some source offers no fixed rate: offer
+  // the variable rate in one click (e.g. Chainflip with freeze protection).
+  const noSourceReasons = quoteErrorRaw?.code === 'no_source_available' && Array.isArray(quoteErrorRaw.details.reasons) ? quoteErrorRaw.details.reasons : [];
+  const variableRateMayHelp =
+    rateType === 'fixed' &&
+    noSourceReasons.some((r) => typeof r === 'object' && r !== null && (r as { reason?: unknown }).reason === 'rate_type_unsupported');
   const applyAmount = (value: string) => {
     amountTypedRef.current = true;
     setAmountSide('from');
@@ -908,7 +921,14 @@ export default function SwapForm() {
           ) : quoteError && !quoting && !amountError ? (
             <div className="alert alert-error" role="alert">
               {quoteError.message}
-              {quoteErrorRaw?.code === 'no_source_available' && rateType === 'fixed' && ' Try the variable rate.'}
+              {variableRateMayHelp && (
+                <>
+                  {' '}
+                  <button type="button" className="btn btn-small" onClick={() => setRateType('variable')}>
+                    Use the variable rate
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <p className="muted">
