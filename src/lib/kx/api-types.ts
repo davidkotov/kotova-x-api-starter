@@ -455,7 +455,10 @@ export interface components {
             name: string;
             icon: components["schemas"]["Icon"];
             icon_png: components["schemas"]["Icon"];
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description The Kotova X app, https://app.kotova.io. You may link the Kotova X name or icon to it.
+             */
             website_url: string;
         };
         /**
@@ -1701,7 +1704,7 @@ export interface operations {
                      *           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                      *           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                      *         },
-                     *         "website_url": "https://kotova.io/x"
+                     *         "website_url": "https://app.kotova.io"
                      *       },
                      *       "attribution": {
                      *         "provider_display_required": true,
@@ -2298,7 +2301,7 @@ export interface operations {
                      *           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                      *           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                      *         },
-                     *         "website_url": "https://kotova.io/x"
+                     *         "website_url": "https://app.kotova.io"
                      *       },
                      *       "source": {
                      *         "slug": "sideshift",

@@ -540,7 +540,7 @@
                       "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                       "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                     },
-                    "website_url": "https://kotova.io/x"
+                    "website_url": "https://app.kotova.io"
                   },
                   "attribution": {
                     "provider_display_required": true,
@@ -1094,7 +1094,7 @@
                           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                         },
-                        "website_url": "https://kotova.io/x"
+                        "website_url": "https://app.kotova.io"
                       },
                       "source": {
                         "slug": "sideshift",
@@ -1219,7 +1219,7 @@
                           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                         },
-                        "website_url": "https://kotova.io/x"
+                        "website_url": "https://app.kotova.io"
                       },
                       "source": {
                         "slug": "changenow",
@@ -1795,7 +1795,7 @@
                       "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                       "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                     },
-                    "website_url": "https://kotova.io/x"
+                    "website_url": "https://app.kotova.io"
                   },
                   "source": {
                     "slug": "sideshift",
@@ -2814,7 +2814,7 @@
                           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                         },
-                        "website_url": "https://kotova.io/x"
+                        "website_url": "https://app.kotova.io"
                       },
                       "source": {
                         "slug": "sideshift",
@@ -2904,7 +2904,7 @@
                           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                         },
-                        "website_url": "https://kotova.io/x"
+                        "website_url": "https://app.kotova.io"
                       },
                       "source": {
                         "slug": "sideshift",
@@ -2989,7 +2989,7 @@
                           "url": "https://cdn.kotova.io/images/brand/kotova-x/icon-256.png",
                           "fallback_url": "https://assets.kotova.io/images/brand/kotova-x/icon-256.png"
                         },
-                        "website_url": "https://kotova.io/x"
+                        "website_url": "https://app.kotova.io"
                       },
                       "source": {
                         "slug": "sideshift",
@@ -3654,7 +3654,7 @@
           },
           "website_url": {
             "type": "string",
-            "description": "",
+            "description": "The Kotova X app, https://app.kotova.io. You may link the Kotova X name or icon to it.",
             "format": "uri"
           }
         },
