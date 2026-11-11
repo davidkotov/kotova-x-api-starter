@@ -1,0 +1,81 @@
+name: CI
+
+# Third-party actions are pinned to full commit SHAs (the tag is in the
+# comment); Dependabot (.github/dependabot.yml) proposes updates.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily: compare the vendored OpenAPI document with the live API.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # A newer push to the same pull request replaces the running check.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Typecheck, lint, build, API types
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs the pnpm version named in package.json ("packageManager").
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: API types match openapi/openapi.v1.json
+        run: pnpm check:api
+
+  spec-drift:
+    name: Vendored OpenAPI vs live API (non-blocking)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # Reports a difference without failing the workflow.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the live OpenAPI document
+        run: curl --fail --silent --show-error --location --max-time 30 https://api.kotova.io/x/v1/openapi.json -o "$RUNNER_TEMP/live-openapi.json"
+
+      - name: Compare with openapi/openapi.v1.json
+        shell: bash
+        run: |
+          if diff -u <(jq -S . openapi/openapi.v1.json) <(jq -S . "$RUNNER_TEMP/live-openapi.json") > "$RUNNER_TEMP/openapi.diff"; then
+            echo "openapi/openapi.v1.json matches the live API."
+          else
+            echo "::warning title=OpenAPI drift::openapi/openapi.v1.json differs from https://api.kotova.io/x/v1/openapi.json. Replace it with the live document, run pnpm gen:api and fix any type errors."
+            head -n 300 "$RUNNER_TEMP/openapi.diff"
+            exit 1
+          fi
