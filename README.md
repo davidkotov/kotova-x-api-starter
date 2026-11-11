@@ -5,7 +5,7 @@ starting point for your own. It is a small Next.js app that gets live quotes, cr
 orders and tracks them until they finish, with your API key kept on the server.
 
 **Live demo:** Kotova runs this app at https://swapstarter.kotova.io, against the
-production API. Orders there are real orders with real funds, so use small amounts.
+production API. Orders there are real orders with real funds.
 
 > **Example code, no warranty.** This repository is provided "as is" under the
 > [MIT License](LICENSE), without warranty of any kind. Your use of the Kotova X API is
