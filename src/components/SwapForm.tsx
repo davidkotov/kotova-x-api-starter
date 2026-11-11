@@ -41,7 +41,7 @@ import { kx, KxError, newIdempotencyKey, UI_LANG } from '@/lib/kx/client';
 import { describeKxError, settlesOrderRequest, type DescribedError, type ErrorField } from '@/lib/kx/errors';
 import { cleanAmountInput, invertRate, toRequestAmount, trimAmount } from '@/lib/kx/decimal';
 import { rememberOrder } from '@/lib/kx/recent-orders';
-import { fallbacksNeedingRefund, refundForwarding, refundForwardingHint } from '@/lib/kx/refund';
+import { fallbacksNeedingRefund } from '@/lib/kx/refund';
 import { formatDuration, formatTime, shortAddress } from '@/lib/format';
 import { readListPref, readPref, writePref } from '@/lib/prefs';
 import { SUPPORT_CONTACT } from '@/lib/support';
@@ -414,7 +414,6 @@ export default function SwapForm() {
   const toMemoSupported = liveQuote ? liveQuote.requirements.to_memo === 'optional' : !!to?.memo.supported;
   const refundMemoSupported = liveQuote ? liveQuote.requirements.refund_memo === 'optional' : !!from?.memo.supported;
   const refundRequired = liveQuote?.requirements.refund_address === 'required';
-  const forwarding = refundForwarding(liveQuote?.source);
   const fallbacksNeedRefund = liveQuote && retryFallback ? fallbacksNeedingRefund(liveQuote.fallback_sources) : [];
 
   // ------------------------------------------------------------------ amount handlers
@@ -727,17 +726,15 @@ export default function SwapForm() {
 
   const refundTag = refundRequired ? <span className="tag tag-required">Required</span> : <span className="tag tag-recommended">Recommended</span>;
   const sourceName = liveQuote?.source.name ?? 'the source';
-  const refundHint = (
-    <>
-      {refundRequired
-        ? `${sourceName} needs a refund address for this order. `
-        : "If the swap can't be completed, the funds go back to this address. "}
-      {refundForwardingHint(sourceName, forwarding)}
-      {!refundAddress.trim() && fallbacksNeedRefund.length > 0 && (
-        <> Without one, {fallbacksNeedRefund.map((f) => f.source.name).join(' and ')} can&apos;t be used as a fallback.</>
-      )}
-    </>
-  );
+  // Shown only when it says something the user must act on: the source needs
+  // the address, or fallback sources are skipped without one.
+  const refundHintParts = [
+    refundRequired ? `${sourceName} needs a refund address for this order.` : null,
+    !refundAddress.trim() && fallbacksNeedRefund.length > 0
+      ? `Without a refund address, ${fallbacksNeedRefund.map((f) => f.source.name).join(' and ')} can't be used as a fallback.`
+      : null,
+  ].filter((part): part is string => part !== null);
+  const refundHint = refundHintParts.length > 0 ? refundHintParts.join(' ') : null;
 
   return (
     <div className="stack">

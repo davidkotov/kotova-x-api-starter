@@ -68,7 +68,7 @@ export function SourceNotices({
       {fallbackEnabled && fallbacks.length > 0 && (
         <details className="notice-fallbacks">
           <summary>
-            {`If ${source.name} can't take the order, it is placed with the next best source (${fallbacks.length} more). Show their notices`}
+            {`If ${source.name} can't take the order, it is placed with the next best source (${fallbacks.length} more).`}
           </summary>
           <ol>
             {fallbacks.map((f, i) => (

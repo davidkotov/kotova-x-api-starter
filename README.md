@@ -178,15 +178,15 @@ connection or a 500, send the request again with the same key and the same body.
 
 | Requirement | Where this app meets it |
 |---|---|
-| **Kotova X** by name and icon wherever a quote or order is shown | `src/components/KotovaXMark.tsx`, next to the offer, in the review step, on the order page and with the list of recent orders. Name and icon come from the API's `provider` block at runtime: the icon loads from `icon.url` (cdn.kotova.io), with `icon.fallback_url` (assets.kotova.io) as the one retry. No Kotova files are bundled. |
+| **Kotova X** by name and icon wherever a quote or order is shown | `src/components/KotovaXMark.tsx`, next to the offer, in the review step, on the order page and with the list of recent orders. Name and icon come from the API's `provider` block at runtime: the icon loads from `icon.url` (cdn.kotova.io), with `icon.fallback_url` (assets.kotova.io) as the one retry. No Kotova files are bundled. Name and icon link to the Kotova X app, https://app.kotova.io (`KOTOVA_X_URL`). |
 | The quote's **source notice**, word for word, with its link, before the user confirms | `NoticeText` in `src/components/SourceNotice.tsx` renders `notice.text` with `link_text` as the link to `link_url`, in the offer, in the same view as Create order, without an extra click. |
 | The **fallback sources' notices** when the order may fall back | An expandable section directly below the quote's notice. With **Allow fallback to the next best source** switched off on the review step, the order is sent with `retry_next_best_source: false` and only the quote's notice applies. |
 | After a fallback, the **executing source** | The order page shows the order's `source` and its notice; after a `source_fallback` 201 it also names the quoted source. |
 | Source logos | Only from the API: when a source's `icon` is `null`, no logo is shown. No source logos are bundled. |
 | Expired quotes | The offer counts down to `expires_at`; buttons turn off and a new quote is fetched when it passes. |
 
-Links and images from the API (notice links, `website_url`, explorer and tracking
-links, `order_url`, `status_detail.resolve_url`, icons) are used only when they are
+Links and images from the API (notice links, explorer and tracking links,
+`order_url`, `status_detail.resolve_url`, icons) are used only when they are
 `https://` URLs (`src/lib/kx/safe-url.ts`).
 
 ## Refund addresses
@@ -195,9 +195,10 @@ The refund address sits in the same form as the recipient address. It is marked
 **Recommended**, and **Required** only when the quote says
 `requirements.refund_address: "required"`. Where the source accepts it, it travels with
 the order, so a refund needs no extra step, and fallback sources that need one stay
-eligible. The hint under the field follows the source's `refund_address_forwarding`
-(`at_creation`, `when_needed` or `none`), and the order page shows
-`refund.forwarded`. A refund memo is offered when the quote says
+eligible. A hint under the field appears only when it asks for action: the source
+needs the address, or fallback sources are skipped without one. The order page shows
+`refund.forwarded` and, when the address was not sent with the order, what the source
+does with it (`refund_address_forwarding`). A refund memo is offered when the quote says
 `requirements.refund_memo: "optional"`.
 
 ## Errors

@@ -17,24 +17,12 @@ export function refundForwarding(source: QuoteSource | SourceInfo | null | undef
   return source?.refund_address_forwarding ?? null;
 }
 
-// The switches below end in `default` because the value is an extensible enum:
-// a value this app does not know yet gets the generic wording.
-
-/** What happens to the refund address at this source, in one sentence. */
-export function refundForwardingHint(sourceName: string, forwarding: RefundAddressForwarding | null): string {
-  switch (forwarding) {
-    case 'at_creation':
-      return `It is sent to ${sourceName} with the order, so a refund needs no extra step.`;
-    case 'when_needed':
-      return `${sourceName} takes it only when a refund is needed; until then it is kept on file.`;
-    case 'none':
-      return `${sourceName} handles refunds itself; the address is kept for support.`;
-    default:
-      return 'It is sent to the source with the order where the source accepts it.';
-  }
-}
-
-/** For an order whose refund address was not sent to the source (`refund.forwarded: false`). */
+/**
+ * For an order whose refund address was not sent to the source
+ * (`refund.forwarded: false`). The switch ends in `default` because the value
+ * is an extensible enum: a value this app does not know yet gets the generic
+ * wording.
+ */
 export function refundOnFileHint(sourceName: string, forwarding: RefundAddressForwarding | null): string {
   switch (forwarding) {
     case 'when_needed':
