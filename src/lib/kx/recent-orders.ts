@@ -1,7 +1,9 @@
 'use client';
 
-// Orders created in this browser, so the app can list and reopen them. The
-// API is the record: GET /orders lists every order of your account.
+// Orders created in this browser, so the app can list and reopen them. A
+// convenience, not a record: GET /orders lists your account's orders for 90
+// days after they are created (then the API archives them: 410
+// order_archived). A real integration stores every order in its own database.
 
 import type { Provider } from './types';
 

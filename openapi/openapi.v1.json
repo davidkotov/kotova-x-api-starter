@@ -2474,7 +2474,7 @@
         ],
         "summary": "List your orders",
         "x-kotova-weight": 1,
-        "description": "Your account's API orders (from any of its keys, current or revoked), newest first, as summaries. Never refreshes from the sources: use GET /orders/{id} to track one order.",
+        "description": "Your account's API orders (from any of its keys, current or revoked), newest first, as summaries. Never refreshes from the sources: use GET /orders/{id} to track one order. Orders older than 90 days are archived and no longer listed.",
         "parameters": [
           {
             "name": "status",
@@ -2705,7 +2705,7 @@
         ],
         "summary": "Get an order",
         "x-kotova-weight": 1,
-        "description": "One order of your account (created with any of its keys, current or revoked). The read may first refresh the order from its source — at most once per order per 10 s while it is in progress and once per 60 s while it is only followed up (refunding, expired inside the late-deposit window, done without a payout hash), never waiting more than about 6 s — and says so in `X-Kotova-Status-Refreshed`. Poll every 15-30 s until `is_final`.",
+        "description": "One order of your account (created with any of its keys, current or revoked). The read may first refresh the order from its source — at most once per order per 10 s while it is in progress and once per 60 s while it is only followed up (refunding, expired inside the late-deposit window, done without a payout hash), never waiting more than about 6 s — and says so in `X-Kotova-Status-Refreshed`. Poll every 15-30 s until `is_final`. Orders can be read for 90 days after they are created; after that the order is archived and this answers 410 `order_archived`. Keep your own record of every order (see the Orders guide).",
         "parameters": [
           {
             "$ref": "#/components/parameters/OrderIdPath"
@@ -3111,6 +3111,50 @@
               }
             }
           },
+          "410": {
+            "description": "The order is archived: orders can be read for 90 days after they are created (`created_at`). Use your own record of it.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/X-Request-Id"
+              },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "order_archived",
+                    "message": "This order is archived: orders can be read through the API for 90 days after they are created. Use your own record of it.",
+                    "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                    "details": {
+                      "id": "X-7KQ2ZD"
+                    },
+                    "doc_url": "https://docs.kotova.io/x/api/errors#order_archived"
+                  }
+                }
+              }
+            }
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           },
@@ -3419,7 +3463,7 @@
       "OrderId": {
         "type": "string",
         "pattern": "^X-[A-Z0-9]{6}$",
-        "description": "The public order id: `X-` followed by 6 characters of A-Z and 0-9. Accepted case-insensitively in paths.",
+        "description": "The public order id: `X-` followed by 6 characters of A-Z and 0-9. Accepted case-insensitively in paths. Unique and never reused, also after the order is archived.",
         "examples": [
           "X-7KQ2ZD"
         ]
@@ -3534,6 +3578,7 @@
           "idempotency_conflict",
           "idempotency_in_progress",
           "quote_expired",
+          "order_archived",
           "payload_too_large",
           "unsupported_media_type",
           "unknown_currency",
@@ -3580,7 +3625,7 @@
           "details": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Machine-readable specifics, when the code has any:\n\n- `invalid_request`: `field` (dot path, e.g. `from.currency`, or a header / parameter name) and `reason` — one of `required`, `invalid_type`, `invalid_format`, `invalid_value` (with `allowed`), `unknown_field`, `unknown_parameter`, `duplicate_parameter`, `too_long`, `too_many`, `too_many_decimals` (with `max_fraction_digits`), `too_many_integer_digits`, `not_positive`, `not_public_unicast`, `from_or_to_required`, `not_allowed_with_quote_id`, `requires_refund_address`, `invalid_json`, `invalid_encoding`.\n- `rate_limited`: `limit`, `remaining`, `reset_seconds`, and `weight` (the account budget) — or `reason`: `fanout` (quotes that ask a source live), `ip` (keyless calls per IP) or `auth_failures` (failed authentications per IP).\n- `order_cap_reached`: `cap` (`open_unfunded` | `created_24h`), `limit`, `current`.\n- `unknown_currency`, `currency_unavailable`: `side` (`from` | `to`; absent on /addresses/validate), `currency`, `network`. `same_currency`: `currency`, `network`. `pair_unavailable`: `from`, `to`.\n- `no_source_available`: `reasons` [{`reason`, `sources`}] with `reason` one of `excluded_by_request`, `freeze_protection`, `rate_type_unsupported`, `end_user_ip_required`, `refund_address_required`, `create_budget_exhausted` (extensible).\n- `amount_below_min`, `amount_above_max`: `min_from_amount`, `max_from_amount` (null = no maximum), `currency`, `network` — always in from-units.\n- `sources_unavailable`: `retry_after_seconds`.\n- `quote_not_found`, `quote_expired` (+ `expires_at`), `quote_already_used` (+ `order_id`, null while unknown): `quote_id`.\n- `order_not_found`: `id`.\n- `invalid_address`: `field` (`to_address` | `refund_address`; with `rejected_by_source` also `to_memo` | `refund_memo`), `reason` (`format` | `rejected_by_source`), and `network` or `source`. When the source did not say which field it refused, `field` is the best guess and `fields` lists every candidate (e.g. [`to_address`, `refund_address`]): check them all. `memo_not_supported`: `field`, `network`. `refund_address_required`: `field`, `network`, `source`.\n- `source_error`: `source`, `retryable` (true: nothing was created — re-quote and retry; false: do not retry blindly) and, when the outcome is unknown, `reason`: `outcome_unknown` (the source may hold the order) or `idempotency_outcome_unknown` (an earlier request with this Idempotency-Key had that outcome, or contacted a source and never finished; `source` is absent).\n- `idempotency_conflict`: `header` (`Idempotency-Key`).\n- `source_unavailable`: `source`, `reason` (`disabled` | `paused` | `busy` | `rate_limited`), `requote: true`.\n- POST /orders with `retry_next_best_source` (default): a `source_error` or `source_unavailable` from its create attempts — and an `invalid_address` or `internal_error` from one of the quote's `fallback_sources` — also carries `sources_tried` [{`source`, `reason`}]: every source of the quote the order was tried at, in order (the quote's source first, then its `fallback_sources`). The `idempotency_outcome_unknown` answer (a replay of a blocked Idempotency-Key) does not. `reason`: `disabled`, `paused`, `busy` (not available, not asked); `rejected`, `unavailable`, `rate_limited` (asked, nothing was created); `invalid_address` (asked: it refused the address, which is sent to no other source — the last entry); `internal` (asked: our side failed and nothing was created — the last entry); `outcome_unknown` (asked, the order may exist there — always the last entry); `refund_address_required` (skipped: no `refund_address` sent); `deadline` (skipped: the request had run too long to ask another source, or its create could not have finished in time). The other fields describe the last source asked; when none was asked (503 `source_unavailable`), the quote's source.\n- `service_unavailable`: `reason` — `disabled` (the API is not enabled), `maintenance`, `catalog_missing` or `storage_unavailable` (extensible: new reasons may be added). Retry after the seconds in `Retry-After` when it is sent.\n- `method_not_allowed`: `allowed`. `payload_too_large`: `max_bytes`. `internal_error`: `order_id` when an order was created but could not be read back."
+            "description": "Machine-readable specifics, when the code has any:\n\n- `invalid_request`: `field` (dot path, e.g. `from.currency`, or a header / parameter name) and `reason` — one of `required`, `invalid_type`, `invalid_format`, `invalid_value` (with `allowed`), `unknown_field`, `unknown_parameter`, `duplicate_parameter`, `too_long`, `too_many`, `too_many_decimals` (with `max_fraction_digits`), `too_many_integer_digits`, `not_positive`, `not_public_unicast`, `from_or_to_required`, `not_allowed_with_quote_id`, `requires_refund_address`, `invalid_json`, `invalid_encoding`.\n- `rate_limited`: `limit`, `remaining`, `reset_seconds`, and `weight` (the account budget) — or `reason`: `fanout` (quotes that ask a source live), `ip` (keyless calls per IP) or `auth_failures` (failed authentications per IP).\n- `order_cap_reached`: `cap` (`open_unfunded` | `created_24h`), `limit`, `current`.\n- `unknown_currency`, `currency_unavailable`: `side` (`from` | `to`; absent on /addresses/validate), `currency`, `network`. `same_currency`: `currency`, `network`. `pair_unavailable`: `from`, `to`.\n- `no_source_available`: `reasons` [{`reason`, `sources`}] with `reason` one of `excluded_by_request`, `freeze_protection`, `rate_type_unsupported`, `end_user_ip_required`, `refund_address_required`, `create_budget_exhausted` (extensible).\n- `amount_below_min`, `amount_above_max`: `min_from_amount`, `max_from_amount` (null = no maximum), `currency`, `network` — always in from-units.\n- `sources_unavailable`: `retry_after_seconds`.\n- `quote_not_found`, `quote_expired` (+ `expires_at`), `quote_already_used` (+ `order_id`, null while unknown): `quote_id`.\n- `order_not_found`, `order_archived`: `id`.\n- `invalid_address`: `field` (`to_address` | `refund_address`; with `rejected_by_source` also `to_memo` | `refund_memo`), `reason` (`format` | `rejected_by_source`), and `network` or `source`. When the source did not say which field it refused, `field` is the best guess and `fields` lists every candidate (e.g. [`to_address`, `refund_address`]): check them all. `memo_not_supported`: `field`, `network`. `refund_address_required`: `field`, `network`, `source`.\n- `source_error`: `source`, `retryable` (true: nothing was created — re-quote and retry; false: do not retry blindly) and, when the outcome is unknown, `reason`: `outcome_unknown` (the source may hold the order) or `idempotency_outcome_unknown` (an earlier request with this Idempotency-Key had that outcome, or contacted a source and never finished; `source` is absent).\n- `idempotency_conflict`: `header` (`Idempotency-Key`).\n- `source_unavailable`: `source`, `reason` (`disabled` | `paused` | `busy` | `rate_limited`), `requote: true`.\n- POST /orders with `retry_next_best_source` (default): a `source_error` or `source_unavailable` from its create attempts — and an `invalid_address` or `internal_error` from one of the quote's `fallback_sources` — also carries `sources_tried` [{`source`, `reason`}]: every source of the quote the order was tried at, in order (the quote's source first, then its `fallback_sources`). The `idempotency_outcome_unknown` answer (a replay of a blocked Idempotency-Key) does not. `reason`: `disabled`, `paused`, `busy` (not available, not asked); `rejected`, `unavailable`, `rate_limited` (asked, nothing was created); `invalid_address` (asked: it refused the address, which is sent to no other source — the last entry); `internal` (asked: our side failed and nothing was created — the last entry); `outcome_unknown` (asked, the order may exist there — always the last entry); `refund_address_required` (skipped: no `refund_address` sent); `deadline` (skipped: the request had run too long to ask another source, or its create could not have finished in time). The other fields describe the last source asked; when none was asked (503 `source_unavailable`), the quote's source.\n- `service_unavailable`: `reason` — `disabled` (the API is not enabled), `maintenance`, `catalog_missing` or `storage_unavailable` (extensible: new reasons may be added). Retry after the seconds in `Retry-After` when it is sent.\n- `method_not_allowed`: `allowed`. `payload_too_large`: `max_bytes`. `internal_error`: `order_id` when an order was created but could not be read back."
           },
           "doc_url": {
             "type": "string",
@@ -5201,7 +5246,7 @@
           },
           "order_url": {
             "type": "string",
-            "description": "The order page for the end user; it opens after entering the recipient address. Optional to show: to keep the end user in your app, show the order from GET /orders/{id} and send them to `status_detail.resolve_url` only when the order needs a decision.",
+            "description": "The order page for the end user; it opens after entering the recipient address, for 90 days after the order is created. Optional to show: to keep the end user in your app, show the order from GET /orders/{id} and send them to `status_detail.resolve_url` only when the order needs a decision.",
             "format": "uri"
           },
           "estimated_duration_seconds": {

@@ -113,7 +113,7 @@ rate-limit headers (`RateLimit`, `RateLimit-Policy`, `X-RateLimit-Limit`,
 | Live offer | `POST /quote` | Debounced. `amount_type` follows the field you type in. Sends `rate_type`, `exclude_sources`, `freeze_protection` and `lang`; the server adds `end_user_ip` and, if the API refuses it (400 with `details.field: end_user_ip`), asks once more without it. Renewed when `expires_at` passes, counted on the API's clock. |
 | Review order | `POST /addresses/validate` | Advisory format check of the recipient and refund addresses (and memos). |
 | Create order | `POST /orders` | One `Idempotency-Key` per request body; see [Creating an order safely](#creating-an-order-safely). Fallback sources can take the API up to 90 s: the proxy waits up to 100 s, its function may run 110 s (`maxDuration`) and the browser waits 120 s. |
-| Order page | `GET /orders/{id}` | Only for orders created in this browser. Polled every 15 s while the tab is visible, until `is_final`. |
+| Order page | `GET /orders/{id}` | Only for orders created in this browser. Polled every 15 s while the tab is visible, until `is_final`. An order older than 90 days is archived (410 `order_archived`): the page says so and stops polling. |
 
 ### Orders are private to the browser that created them
 
@@ -126,7 +126,7 @@ id to an `httpOnly`, `SameSite=Strict` cookie signed with `APP_SESSION_SECRET`
 cookie, without calling the API. So an order opens in the browser that created it,
 and nowhere else; clearing cookies, another browser or a new `APP_SESSION_SECRET`
 loses access in this app (the order is not affected; `GET /orders` and your dashboard
-still list it).
+still list it, the API for 90 days after the order is created).
 
 The cookie is `Secure` over https, and in production (`NODE_ENV=production`, so
 `pnpm build && pnpm start`) always, except on a loopback host (`localhost`,
@@ -322,8 +322,10 @@ This is fine for local use as it is. Before you put it on the internet:
 
 - In-app choices for orders that need attention: the order page links to the hosted
   order page (`status_detail.resolve_url`, `order_url`).
-- An account-wide order list: the app lists the orders created in this browser; the API
-  lists all of them with `GET /orders`.
+- An account-wide order list and an order database: the app lists the orders created
+  in this browser; the API lists all of them with `GET /orders`, for 90 days after they
+  are created. A real integration stores every order in its own database (see
+  [Keep your own record](https://docs.kotova.io/x/api/orders#keep-your-own-record)).
 - Fiat values: the API has no prices.
 
 ## Roadmap

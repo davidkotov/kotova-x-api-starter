@@ -283,6 +283,12 @@ export function describeKxError(err: unknown, nameOf: (slug: string) => string =
       return { ...base, message: 'The Kotova X API is unavailable right now. Please try again shortly.', next: 'wait' };
     case 'order_not_found':
       return { ...base, message: 'This app shows only the orders created in this browser.', next: 'none' };
+    case 'order_archived':
+      return {
+        ...base,
+        message: 'This order is archived: the API returns orders for 90 days after they are created. Keep your own record of every order.',
+        next: 'none',
+      };
     default:
       // Any other 5xx (a host's error page without an API error code, or a
       // code this app does not know): the outcome is unknown, so POST /orders

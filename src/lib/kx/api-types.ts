@@ -205,7 +205,7 @@ export interface paths {
         };
         /**
          * List your orders
-         * @description Your account's API orders (from any of its keys, current or revoked), newest first, as summaries. Never refreshes from the sources: use GET /orders/{id} to track one order.
+         * @description Your account's API orders (from any of its keys, current or revoked), newest first, as summaries. Never refreshes from the sources: use GET /orders/{id} to track one order. Orders older than 90 days are archived and no longer listed.
          */
         get: operations["listOrders"];
         put?: never;
@@ -237,7 +237,7 @@ export interface paths {
         };
         /**
          * Get an order
-         * @description One order of your account (created with any of its keys, current or revoked). The read may first refresh the order from its source — at most once per order per 10 s while it is in progress and once per 60 s while it is only followed up (refunding, expired inside the late-deposit window, done without a payout hash), never waiting more than about 6 s — and says so in `X-Kotova-Status-Refreshed`. Poll every 15-30 s until `is_final`.
+         * @description One order of your account (created with any of its keys, current or revoked). The read may first refresh the order from its source — at most once per order per 10 s while it is in progress and once per 60 s while it is only followed up (refunding, expired inside the late-deposit window, done without a payout hash), never waiting more than about 6 s — and says so in `X-Kotova-Status-Refreshed`. Poll every 15-30 s until `is_final`. Orders can be read for 90 days after they are created; after that the order is archived and this answers 410 `order_archived`. Keep your own record of every order (see the Orders guide).
          */
         get: operations["getOrder"];
         put?: never;
@@ -324,7 +324,7 @@ export interface components {
          */
         SourceSlug: string;
         /**
-         * @description The public order id: `X-` followed by 6 characters of A-Z and 0-9. Accepted case-insensitively in paths.
+         * @description The public order id: `X-` followed by 6 characters of A-Z and 0-9. Accepted case-insensitively in paths. Unique and never reused, also after the order is archived.
          * @example X-7KQ2ZD
          */
         OrderId: string;
@@ -382,7 +382,7 @@ export interface components {
          * @description Stable error codes. New codes may be added at any time: fall back on the HTTP status for a code you do not know. Each code is documented at https://docs.kotova.io/x/api/errors#<code>.
          * @enum {string}
          */
-        ErrorCode: "invalid_request" | "unauthorized" | "key_revoked" | "affiliate_inactive" | "not_found" | "order_not_found" | "quote_not_found" | "method_not_allowed" | "quote_already_used" | "idempotency_conflict" | "idempotency_in_progress" | "quote_expired" | "payload_too_large" | "unsupported_media_type" | "unknown_currency" | "currency_unavailable" | "same_currency" | "pair_unavailable" | "no_source_available" | "amount_below_min" | "amount_above_max" | "refund_address_required" | "invalid_address" | "memo_not_supported" | "rate_limited" | "order_cap_reached" | "internal_error" | "source_error" | "source_unavailable" | "sources_unavailable" | "service_unavailable";
+        ErrorCode: "invalid_request" | "unauthorized" | "key_revoked" | "affiliate_inactive" | "not_found" | "order_not_found" | "quote_not_found" | "method_not_allowed" | "quote_already_used" | "idempotency_conflict" | "idempotency_in_progress" | "quote_expired" | "order_archived" | "payload_too_large" | "unsupported_media_type" | "unknown_currency" | "currency_unavailable" | "same_currency" | "pair_unavailable" | "no_source_available" | "amount_below_min" | "amount_above_max" | "refund_address_required" | "invalid_address" | "memo_not_supported" | "rate_limited" | "order_cap_reached" | "internal_error" | "source_error" | "source_unavailable" | "sources_unavailable" | "service_unavailable";
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
             /** @description For people; may change. Branch on `code`, never on the message. */
@@ -400,7 +400,7 @@ export interface components {
              *     - `amount_below_min`, `amount_above_max`: `min_from_amount`, `max_from_amount` (null = no maximum), `currency`, `network` — always in from-units.
              *     - `sources_unavailable`: `retry_after_seconds`.
              *     - `quote_not_found`, `quote_expired` (+ `expires_at`), `quote_already_used` (+ `order_id`, null while unknown): `quote_id`.
-             *     - `order_not_found`: `id`.
+             *     - `order_not_found`, `order_archived`: `id`.
              *     - `invalid_address`: `field` (`to_address` | `refund_address`; with `rejected_by_source` also `to_memo` | `refund_memo`), `reason` (`format` | `rejected_by_source`), and `network` or `source`. When the source did not say which field it refused, `field` is the best guess and `fields` lists every candidate (e.g. [`to_address`, `refund_address`]): check them all. `memo_not_supported`: `field`, `network`. `refund_address_required`: `field`, `network`, `source`.
              *     - `source_error`: `source`, `retryable` (true: nothing was created — re-quote and retry; false: do not retry blindly) and, when the outcome is unknown, `reason`: `outcome_unknown` (the source may hold the order) or `idempotency_outcome_unknown` (an earlier request with this Idempotency-Key had that outcome, or contacted a source and never finished; `source` is absent).
              *     - `idempotency_conflict`: `header` (`Idempotency-Key`).
@@ -940,7 +940,7 @@ export interface components {
             };
             /**
              * Format: uri
-             * @description The order page for the end user; it opens after entering the recipient address. Optional to show: to keep the end user in your app, show the order from GET /orders/{id} and send them to `status_detail.resolve_url` only when the order needs a decision.
+             * @description The order page for the end user; it opens after entering the recipient address, for 90 days after the order is created. Optional to show: to keep the end user in your app, show the order from GET /orders/{id} and send them to `status_detail.resolve_url` only when the order needs a decision.
              */
             order_url: string;
             estimated_duration_seconds: number | null;
@@ -2610,6 +2610,35 @@ export interface operations {
                      *           "id": "X-7KQ2ZD"
                      *         },
                      *         "doc_url": "https://docs.kotova.io/x/api/errors#order_not_found"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The order is archived: orders can be read for 90 days after they are created (`created_at`). Use your own record of it. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_archived",
+                     *         "message": "This order is archived: orders can be read through the API for 90 days after they are created. Use your own record of it.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_archived"
                      *       }
                      *     }
                      */

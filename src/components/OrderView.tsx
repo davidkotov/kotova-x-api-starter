@@ -146,6 +146,15 @@ export default function OrderView({ id: rawId }: { id: string }) {
           setNotFound(true);
           return;
         }
+        if (err instanceof KxError && err.code === 'order_archived') {
+          // 90 days after creation the API stops returning the order for good:
+          // drop what is on screen (its deposit details no longer apply), say
+          // so, and stop polling — also on a later tab refocus.
+          timerRef.current = null;
+          setOrder(null);
+          setError(describeKxError(err));
+          return;
+        }
         setError(describeKxError(err));
         const wait = err instanceof KxError && err.retryAfterSeconds ? err.retryAfterSeconds * 1000 : POLL_MS * 2;
         schedule(Math.max(wait, POLL_MS));
