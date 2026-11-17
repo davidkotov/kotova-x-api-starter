@@ -1,10 +1,12 @@
 // /api/kx/** is the browser's only way to the Kotova X API.
 //
 // A narrow proxy: it forwards only the endpoints this app uses and adds the
-// secret key on the server, so the browser never sees it.
+// secret key on the server, so the browser never sees it. Every endpoint it
+// forwards needs the key (only GET /health and the rates feed are keyless at
+// the API, and this app uses neither).
 //
-//   GET  /api/kx/currencies            GET  /currencies          keyless, cached 60 s
-//   GET  /api/kx/sources?lang=         GET  /sources             keyless, cached 60 s
+//   GET  /api/kx/currencies            GET  /currencies          cached 60 s (weight 1 per API call)
+//   GET  /api/kx/sources?lang=         GET  /sources             cached 60 s (weight 1 per API call)
 //   POST /api/kx/quote                 POST /quote               end_user_ip added here
 //   POST /api/kx/addresses/validate    POST /addresses/validate
 //   POST /api/kx/orders                POST /orders              Idempotency-Key passed on
@@ -54,19 +56,19 @@ type ApiOperation = {
 }[keyof paths];
 
 type Route = ApiOperation & {
-  /** Keyed endpoints carry the secret key; keyless ones never do. */
+  /** Keyed endpoints carry the secret key (every endpoint this app forwards). */
   keyed: boolean;
   /** Pass `lang` on, as a supported language; every other query parameter is dropped. */
   lang?: boolean;
-  /** Keep the answer in memory for this long (keyless catalogue only). */
+  /** Keep the answer in memory for this long (the catalogue only). */
   cacheMs?: number;
   timeoutMs: number;
 };
 
 // A path or method that is not in the OpenAPI document fails the type check.
 const ROUTES: readonly Route[] = [
-  { path: '/currencies', method: 'get', keyed: false, cacheMs: 60_000, timeoutMs: 15_000 },
-  { path: '/sources', method: 'get', keyed: false, lang: true, cacheMs: 60_000, timeoutMs: 15_000 },
+  { path: '/currencies', method: 'get', keyed: true, cacheMs: 60_000, timeoutMs: 15_000 },
+  { path: '/sources', method: 'get', keyed: true, lang: true, cacheMs: 60_000, timeoutMs: 15_000 },
   { path: '/quote', method: 'post', keyed: true, timeoutMs: 25_000 },
   { path: '/addresses/validate', method: 'post', keyed: true, timeoutMs: 15_000 },
   // Creating an order may try the quote's fallback sources in a row (up to 90 s at the API).
@@ -255,7 +257,7 @@ function errorOf(json: unknown): ErrorShape | null {
   return error && typeof error === 'object' ? (error as ErrorShape) : null;
 }
 
-// ----------------------------------------------------------------------------- keyless catalogue cache
+// ----------------------------------------------------------------------------- catalogue cache
 
 type Cached = { body: string; headers: [string, string][]; etag: string | null; at: number };
 
@@ -317,7 +319,8 @@ async function handle(req: NextRequest, rawSegments: string[]): Promise<Response
   const key = route.keyed ? apiKey() : null;
   if (route.keyed && !key) return notConfigured('KOTOVA_API_KEY is not set on the server. See .env.example.');
   // Orders are opened only by the browser that created them (signed cookie).
-  const secret = route.keyed ? sessionSecret() : null;
+  // The cached catalogue does not use the cookie.
+  const secret = route.keyed && !route.cacheMs ? sessionSecret() : null;
   if (secret && !secret.ok) return notConfigured(secret.problem);
 
   const url = new URL(`${base.url}/${segments.map(encodeURIComponent).join('/')}`);

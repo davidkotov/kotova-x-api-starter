@@ -4,7 +4,7 @@
     "title": "Kotova X API",
     "version": "1.0.0",
     "summary": "Quotes, orders and the catalog of Kotova X.",
-    "description": "Quote and create crypto swaps at the sources Kotova X routes to — the parties that execute each swap — with the rates, ranking and terms of app.kotova.io.\n\n**Base URL** `https://api.kotova.io/x/v1`. JSON everywhere (UTF-8, snake_case), except the XML rates feed.\n\n**Authentication.** Keyed operations take `Authorization: Bearer ktv_sk_…`, the secret of the API key you create on your Kotova account page. Keep it on your server. Keyless operations (service, catalog, rates feed) need no key and ignore one; send none, so the CDN can answer them.\n\n**Conventions.**\n- Amounts are decimal strings: no exponent, no trailing zeros, at most min(network decimals, 12) fractional digits. What the end user sends is rounded up, what they receive is rounded down.\n- Timestamps are ISO-8601 UTC with `Z`.\n- Identifiers: `currency` is the ticker (`BTC`), `network` the network code (`btc`, `trx`), a source its `slug`. Numeric ids are never exposed.\n- A single resource is the object itself; lists are `{data, has_more, next_cursor}` (catalog lists add `catalog_version` and `updated_at`).\n- Ignore response fields you do not know: fields are added without notice.\n- Unknown body fields and unknown or repeated query parameters are a 400 `invalid_request`, never silently ignored; so are empty query segments (`?&`) on keyless operations.\n- POST bodies need `Content-Type: application/json` (else 415) and at most 16 KB (else 413).\n- Every response carries `X-Request-Id`; quote it to support (api@kotova.io).\n- An unsupported method is a 405 `method_not_allowed` with `Allow`. HEAD works on every keyless GET.\n\n**Rate limits.** Each account has a budget of weight units per 60-second window (default 250; higher limits on request). POST /orders weighs 50, every other keyed call 1 (`x-kotova-weight`); a refused call costs nothing, and a replay or an error before the source was contacted costs 1. Keyed responses carry `X-Kotova-Weight`, `RateLimit-Policy`, `RateLimit`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; a 429 adds `Retry-After`. Quotes that ask a source live also count against max(30, limit/8) per minute: a cache miss, or a cached quote that still has to ask a source live (e.g. a source that prices per end user when `end_user_ip` is sent). Orders are capped per account: open unfunded orders at 20 × limit/250 and orders created in 24 hours at 100 × limit/250 (429 `order_cap_reached`). These figures are rounded down, and each cap is at least 1. Keyless calls that reach the server are limited to 120 per minute per IP; the rates feed has its own allowance of the same size.\n\n**Errors.** Every non-2xx answer is `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"?, \"doc_url\"}}`. Branch on `code` — stable, with new codes added over time (fall back on the HTTP status) — never on `message`.\n\n**Warnings.** A 2xx body may carry `warnings[]`: non-fatal notes with an extensible `code`.\n\n**Attribution.** Quotes, orders and GET /sources carry the `provider` block (Kotova X) and the `source` block with the notice the end user must see before an order is created. A quote's `fallback_sources` carry their notices too: the order may be placed with one of them, so show them as well before the order — or send `retry_next_best_source: false` with the order. https://docs.kotova.io/x/api/display-requirements.\n\n**Browsers.** Keyless operations answer `Access-Control-Allow-Origin: *`. Keyed operations answer CORS only to an allowlist (the Kotova docs console): call them from your server.\n\n**Versioning.** Additive changes — fields, operations, error and warning codes, values of extensible enums — ship at any time. Breaking changes, including a new value in a closed enum (order `status`, `rate_type`, `amount_type`), come only as /x/v2, announced at least 30 days ahead (Deprecation and Sunset headers, e-mail, changelog: https://docs.kotova.io/x/api/changelog).",
+    "description": "Quote and create crypto swaps at the sources Kotova X routes to — the parties that execute each swap — with the rates, ranking and terms of app.kotova.io.\n\n**Base URL** `https://api.kotova.io/x/v1`. JSON everywhere (UTF-8, snake_case), except the XML rates feed.\n\n**Authentication.** Every operation takes `Authorization: Bearer ktv_sk_…`, the secret of the API key you create on your Kotova account page — the catalog included. Keep it on your server. Only GET /health and the rates feed (GET /rates/variable.xml, /rates/fixed.xml) need no key and ignore one; send none, so the CDN can answer them.\n\n**Conventions.**\n- Amounts are decimal strings: no exponent, no trailing zeros, at most min(network decimals, 12) fractional digits. What the end user sends is rounded up, what they receive is rounded down.\n- Timestamps are ISO-8601 UTC with `Z`.\n- Identifiers: `currency` is the ticker (`BTC`), `network` the network code (`btc`, `trx`), a source its `slug`. Numeric ids are never exposed.\n- A single resource is the object itself; lists are `{data, has_more, next_cursor}` (catalog lists add `catalog_version` and `updated_at`).\n- Ignore response fields you do not know: fields are added without notice.\n- Unknown body fields and unknown or repeated query parameters are a 400 `invalid_request`, never silently ignored; so are empty query segments (`?&`) on keyless operations.\n- POST bodies need `Content-Type: application/json` (else 415) and at most 16 KB (else 413).\n- Every response carries `X-Request-Id`; quote it to support (api@kotova.io).\n- An unsupported method is a 405 `method_not_allowed` with `Allow`. HEAD works on GET /health and the rates feed only.\n\n**Rate limits.** Each account has a budget of weight units per 60-second window (default 250; higher limits on request). POST /orders weighs 50, every other keyed call 1 (`x-kotova-weight`); a refused call costs nothing, and a replay or an error before the source was contacted costs 1. Keyed responses carry `X-Kotova-Weight`, `RateLimit-Policy`, `RateLimit`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; a 429 adds `Retry-After`. Quotes that ask a source live also count against max(30, limit/8) per minute: a cache miss, or a cached quote that still has to ask a source live (e.g. a source that prices per end user when `end_user_ip` is sent). Orders are capped per account: open unfunded orders at 20 × limit/250 and orders created in 24 hours at 100 × limit/250 (429 `order_cap_reached`). These figures are rounded down, and each cap is at least 1. Calls to GET /health that reach the server are limited to 120 per minute per IP; the rates feed has its own allowance of the same size.\n\n**Errors.** Every non-2xx answer is `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"?, \"doc_url\"}}`. Branch on `code` — stable, with new codes added over time (fall back on the HTTP status) — never on `message`.\n\n**Warnings.** A 2xx body may carry `warnings[]`: non-fatal notes with an extensible `code`.\n\n**Attribution.** Quotes, orders and GET /sources carry the `provider` block (Kotova X) and the `source` block with the notice the end user must see before an order is created. A quote's `fallback_sources` carry their notices too: the order may be placed with one of them, so show them as well before the order — or send `retry_next_best_source: false` with the order. https://docs.kotova.io/x/api/display-requirements.\n\n**Browsers.** GET /health and the rates feed answer `Access-Control-Allow-Origin: *`. Every other operation answers CORS only to an allowlist (the Kotova docs console): call them from your server.\n\n**Versioning.** Additive changes — fields, operations, error and warning codes, values of extensible enums — ship at any time. Breaking changes, including a new value in a closed enum (order `status`, `rate_type`, `amount_type`), come only as /x/v2, announced at least 30 days ahead (Deprecation and Sunset headers, e-mail, changelog: https://docs.kotova.io/x/api/changelog).",
     "termsOfService": "https://kotova.io/terms/api",
     "contact": {
       "name": "Kotova X API support",
@@ -26,11 +26,11 @@
   "tags": [
     {
       "name": "Service",
-      "description": "Index, health and this document. No key."
+      "description": "Index, health and this document. Only GET /health needs no key."
     },
     {
       "name": "Catalog",
-      "description": "Currencies, networks, sources and pairs. No key; CDN-cached."
+      "description": "Currencies, networks, sources and pairs."
     },
     {
       "name": "Rates feed",
@@ -65,8 +65,8 @@
           "Service"
         ],
         "summary": "API index",
+        "x-kotova-weight": 1,
         "description": "Links to the documentation, this OpenAPI document, the changelog and the health check. The canonical URL is `https://api.kotova.io/x/v1`, without a trailing slash: `/x/v1/` only answers a 308 redirect to it.",
-        "security": [],
         "responses": {
           "200": {
             "description": "The index.",
@@ -74,11 +74,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -101,13 +116,22 @@
             "$ref": "#/components/responses/NotModified"
           },
           "400": {
-            "$ref": "#/components/responses/KeylessInvalidRequest"
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -209,8 +233,8 @@
           "Service"
         ],
         "summary": "This OpenAPI document",
-        "description": "The OpenAPI 3.1 description of /x/v1 — the API's single source of truth.",
-        "security": [],
+        "x-kotova-weight": 1,
+        "description": "The OpenAPI 3.1 description of /x/v1 — the API's single source of truth. The same document is public, without a key, at https://docs.kotova.io/x/api/openapi.json.",
         "responses": {
           "200": {
             "description": "The OpenAPI document.",
@@ -218,11 +242,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -238,13 +277,22 @@
             "$ref": "#/components/responses/NotModified"
           },
           "400": {
-            "$ref": "#/components/responses/KeylessInvalidRequest"
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -256,8 +304,8 @@
           "Catalog"
         ],
         "summary": "List currencies and networks",
-        "description": "Every currency the API can swap, with each network it can be sent (`send`) or received (`receive`) on and the sources serving each direction. Takes no parameters: apply source exclusions client-side with `send_sources` / `receive_sources`. CDN-cached for 60 s with a weak ETag (send If-None-Match for a 304).",
-        "security": [],
+        "x-kotova-weight": 1,
+        "description": "Every currency the API can swap, with each network it can be sent (`send`) or received (`receive`) on and the sources serving each direction. Takes no parameters: apply source exclusions client-side with `send_sources` / `receive_sources`. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).",
         "responses": {
           "200": {
             "description": "The currency list.",
@@ -265,11 +313,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -380,13 +443,22 @@
             "$ref": "#/components/responses/NotModified"
           },
           "400": {
-            "$ref": "#/components/responses/KeylessInvalidRequest"
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -398,8 +470,8 @@
           "Catalog"
         ],
         "summary": "List networks",
-        "description": "Every network with at least one usable currency: memo support, address format, EVM chain id and an explorer link template. No parameters. CDN-cached for 60 s with a weak ETag.",
-        "security": [],
+        "x-kotova-weight": 1,
+        "description": "Every network with at least one usable currency: memo support, address format, EVM chain id and an explorer link template. No parameters. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).",
         "responses": {
           "200": {
             "description": "The network list.",
@@ -407,11 +479,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -485,13 +572,22 @@
             "$ref": "#/components/responses/NotModified"
           },
           "400": {
-            "$ref": "#/components/responses/KeylessInvalidRequest"
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -503,8 +599,8 @@
           "Catalog"
         ],
         "summary": "List sources",
-        "description": "The sources the API routes swaps to, with their rules, refund-address policy (`refund_address`: when one is required; `refund_address_forwarding`: what an order's refund address is used for there) and the notice to show in `lang`, plus the Kotova X `provider` block and the display requirements. A source that is temporarily not used is listed with `status: unavailable`. CDN-cached for 60 s with a weak ETag.",
-        "security": [],
+        "x-kotova-weight": 1,
+        "description": "The sources the API routes swaps to, with their rules, refund-address policy (`refund_address`: when one is required; `refund_address_forwarding`: what an order's refund address is used for there) and the notice to show in `lang`, plus the Kotova X `provider` block and the display requirements. A source that is temporarily not used is listed with `status: unavailable`. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).",
         "parameters": [
           {
             "$ref": "#/components/parameters/Lang"
@@ -517,11 +613,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -613,13 +724,22 @@
             "$ref": "#/components/responses/NotModified"
           },
           "400": {
-            "$ref": "#/components/responses/KeylessInvalidRequest"
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -631,8 +751,8 @@
           "Catalog"
         ],
         "summary": "What a currency can be swapped into (or from)",
-        "description": "Give one side or both: `from` + `from_network`, `to` + `to_network`. A side given halfway is a 400 for its missing half; neither side is a 400 `from_or_to_required` (there is no all-pairs list).\n\n- both sides: that pair, when a source serves it (else an empty list);\n- `from` only: every leg it can be swapped into;\n- `to` only: every leg that can be swapped into it.\n\nPairs carry no limits — quotes do. CDN-cached for 60 s with a weak ETag.",
-        "security": [],
+        "x-kotova-weight": 1,
+        "description": "Give one side or both: `from` + `from_network`, `to` + `to_network`. A side given halfway is a 400 for its missing half; neither side is a 400 `from_or_to_required` (there is no all-pairs list).\n\n- both sides: that pair, when a source serves it (else an empty list);\n- `from` only: every leg it can be swapped into;\n- `to` only: every leg that can be swapped into it.\n\nPairs carry no limits — quotes do. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).",
         "parameters": [
           {
             "name": "from",
@@ -682,11 +802,26 @@
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
               },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
+              },
               "ETag": {
                 "$ref": "#/components/headers/ETag"
-              },
-              "Cache-Control": {
-                "$ref": "#/components/headers/Cache-Control"
               }
             },
             "content": {
@@ -733,6 +868,24 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
+              },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
               }
             },
             "content": {
@@ -773,11 +926,35 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AffiliateInactive"
+          },
           "422": {
             "description": "A leg is unknown, not usable in its direction, or both legs are the same.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/X-Request-Id"
+              },
+              "X-Kotova-Weight": {
+                "$ref": "#/components/headers/X-Kotova-Weight"
+              },
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimit-Policy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/X-RateLimit-Limit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/X-RateLimit-Remaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/X-RateLimit-Reset"
               }
             },
             "content": {
@@ -835,10 +1012,13 @@
             }
           },
           "429": {
-            "$ref": "#/components/responses/KeylessRateLimited"
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
           },
           "503": {
-            "$ref": "#/components/responses/KeylessServiceUnavailable"
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -5869,16 +6049,31 @@
     },
     "responses": {
       "NotModified": {
-        "description": "Not modified: the If-None-Match value matches the current ETag. No body.",
+        "description": "Not modified: the If-None-Match value matches the current ETag. No body; the call still costs its weight.",
         "headers": {
           "X-Request-Id": {
             "$ref": "#/components/headers/X-Request-Id"
           },
+          "X-Kotova-Weight": {
+            "$ref": "#/components/headers/X-Kotova-Weight"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimit-Policy"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          },
+          "X-RateLimit-Limit": {
+            "$ref": "#/components/headers/X-RateLimit-Limit"
+          },
+          "X-RateLimit-Remaining": {
+            "$ref": "#/components/headers/X-RateLimit-Remaining"
+          },
+          "X-RateLimit-Reset": {
+            "$ref": "#/components/headers/X-RateLimit-Reset"
+          },
           "ETag": {
             "$ref": "#/components/headers/ETag"
-          },
-          "Cache-Control": {
-            "$ref": "#/components/headers/Cache-Control"
           }
         }
       },

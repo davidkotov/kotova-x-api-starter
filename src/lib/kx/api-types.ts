@@ -51,7 +51,7 @@ export interface paths {
         };
         /**
          * This OpenAPI document
-         * @description The OpenAPI 3.1 description of /x/v1 — the API's single source of truth.
+         * @description The OpenAPI 3.1 description of /x/v1 — the API's single source of truth. The same document is public, without a key, at https://docs.kotova.io/x/api/openapi.json.
          */
         get: operations["getOpenApi"];
         put?: never;
@@ -71,7 +71,7 @@ export interface paths {
         };
         /**
          * List currencies and networks
-         * @description Every currency the API can swap, with each network it can be sent (`send`) or received (`receive`) on and the sources serving each direction. Takes no parameters: apply source exclusions client-side with `send_sources` / `receive_sources`. CDN-cached for 60 s with a weak ETag (send If-None-Match for a 304).
+         * @description Every currency the API can swap, with each network it can be sent (`send`) or received (`receive`) on and the sources serving each direction. Takes no parameters: apply source exclusions client-side with `send_sources` / `receive_sources`. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).
          */
         get: operations["getCurrencies"];
         put?: never;
@@ -91,7 +91,7 @@ export interface paths {
         };
         /**
          * List networks
-         * @description Every network with at least one usable currency: memo support, address format, EVM chain id and an explorer link template. No parameters. CDN-cached for 60 s with a weak ETag.
+         * @description Every network with at least one usable currency: memo support, address format, EVM chain id and an explorer link template. No parameters. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).
          */
         get: operations["getNetworks"];
         put?: never;
@@ -111,7 +111,7 @@ export interface paths {
         };
         /**
          * List sources
-         * @description The sources the API routes swaps to, with their rules, refund-address policy (`refund_address`: when one is required; `refund_address_forwarding`: what an order's refund address is used for there) and the notice to show in `lang`, plus the Kotova X `provider` block and the display requirements. A source that is temporarily not used is listed with `status: unavailable`. CDN-cached for 60 s with a weak ETag.
+         * @description The sources the API routes swaps to, with their rules, refund-address policy (`refund_address`: when one is required; `refund_address_forwarding`: what an order's refund address is used for there) and the notice to show in `lang`, plus the Kotova X `provider` block and the display requirements. A source that is temporarily not used is listed with `status: unavailable`. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).
          */
         get: operations["getSources"];
         put?: never;
@@ -137,7 +137,7 @@ export interface paths {
          *     - `from` only: every leg it can be swapped into;
          *     - `to` only: every leg that can be swapped into it.
          *
-         *     Pairs carry no limits — quotes do. CDN-cached for 60 s with a weak ETag.
+         *     Pairs carry no limits — quotes do. Weak ETag: send it back as If-None-Match for a 304 (still weight 1).
          */
         get: operations["getPairs"];
         put?: never;
@@ -1041,12 +1041,17 @@ export interface components {
         };
     };
     responses: {
-        /** @description Not modified: the If-None-Match value matches the current ETag. No body. */
+        /** @description Not modified: the If-None-Match value matches the current ETag. No body; the call still costs its weight. */
         NotModified: {
             headers: {
                 "X-Request-Id": components["headers"]["X-Request-Id"];
+                "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                RateLimit: components["headers"]["RateLimit"];
+                "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                 ETag: components["headers"]["ETag"];
-                "Cache-Control": components["headers"]["Cache-Control"];
                 [name: string]: unknown;
             };
             content?: never;
@@ -1363,8 +1368,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1382,9 +1392,12 @@ export interface operations {
                 };
             };
             304: components["responses"]["NotModified"];
-            400: components["responses"]["KeylessInvalidRequest"];
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getHealth: {
@@ -1444,8 +1457,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1453,9 +1471,12 @@ export interface operations {
                 };
             };
             304: components["responses"]["NotModified"];
-            400: components["responses"]["KeylessInvalidRequest"];
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getCurrencies: {
@@ -1471,8 +1492,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1578,9 +1604,12 @@ export interface operations {
                 };
             };
             304: components["responses"]["NotModified"];
-            400: components["responses"]["KeylessInvalidRequest"];
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getNetworks: {
@@ -1596,8 +1625,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1666,9 +1700,12 @@ export interface operations {
                 };
             };
             304: components["responses"]["NotModified"];
-            400: components["responses"]["KeylessInvalidRequest"];
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getSources: {
@@ -1687,8 +1724,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1775,9 +1817,12 @@ export interface operations {
                 };
             };
             304: components["responses"]["NotModified"];
-            400: components["responses"]["KeylessInvalidRequest"];
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getPairs: {
@@ -1814,8 +1859,13 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     ETag: components["headers"]["ETag"];
-                    "Cache-Control": components["headers"]["Cache-Control"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1857,24 +1907,39 @@ export interface operations {
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
             /** @description A leg is unknown, not usable in its direction, or both legs are the same. */
             422: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            429: components["responses"]["KeylessRateLimited"];
-            503: components["responses"]["KeylessServiceUnavailable"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getRatesXml: {
