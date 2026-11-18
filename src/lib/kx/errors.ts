@@ -5,6 +5,7 @@
 
 import { SUPPORT_CONTACT } from '../support';
 import { KxError } from './client';
+import { trimAmount } from './decimal';
 import type { AddressField } from './types';
 
 export type ErrorField = AddressField | 'amount';
@@ -145,6 +146,10 @@ export function describeKxError(err: unknown, nameOf: (slug: string) => string =
     case 'invalid_request': {
       const field = str(d.field);
       const reason = str(d.reason);
+      if (reason === 'lightning_requires_amount_type_to' || reason === 'lightning_requires_fixed') {
+        // This app always quotes Lightning payouts that way (lib/kx/lightning.ts).
+        return { ...base, message: 'A Lightning payout is quoted at a fixed rate, for the amount of the invoice.', next: 'none' };
+      }
       if (reason === 'too_many_decimals') {
         return { ...base, fields: ['amount'], message: `Too many decimals: at most ${str(d.max_fraction_digits)} for this currency.`, next: 'none' };
       }
@@ -209,6 +214,22 @@ export function describeKxError(err: unknown, nameOf: (slug: string) => string =
         message: `The ${joinOr(labels)} does not match the ${network || 'network'} format.`,
         next: 'none',
       };
+    }
+    case 'invalid_lightning_invoice': {
+      const reason = str(d.reason);
+      const message =
+        reason === 'not_an_invoice'
+          ? 'This is not a Lightning invoice. Paste a mainnet BOLT11 invoice: it starts with lnbc.'
+          : reason === 'no_amount'
+            ? 'The invoice has no amount. Create one for the exact amount you receive.'
+            : reason === 'amount_mismatch'
+              ? `The invoice is for ${trimAmount(str(d.invoice_amount))} BTC, the offer for ${trimAmount(str(d.quoted_amount))} BTC. Create an invoice for the offer's amount.`
+              : reason === 'expired'
+                ? 'The invoice has expired. Create a new one.'
+                : reason === 'expires_too_soon'
+                  ? 'The invoice expires in less than 10 minutes. Create one that stays valid longer.'
+                  : `The Lightning invoice was refused (${reason || err.message}).`;
+      return { ...base, fields: ['to_address'], message, next: 'none' };
     }
     case 'memo_not_supported': {
       const field: AddressField = d.field === 'refund_memo' ? 'refund_memo' : 'to_memo';
@@ -321,6 +342,7 @@ const SETTLING_CODES: ReadonlySet<string> = new Set([
   'idempotency_conflict',
   'order_cap_reached',
   'invalid_address',
+  'invalid_lightning_invoice',
   'memo_not_supported',
   'refund_address_required',
   'source_error', // except outcome_unknown (contact_support)

@@ -14,6 +14,7 @@ import KotovaXMark from './KotovaXMark';
 import { NoticeText } from './SourceNotice';
 import { useCatalog } from '@/lib/kx/use-catalog';
 import { legKey } from '@/lib/kx/catalog';
+import { isLightningPayout } from '@/lib/kx/lightning';
 import { kx, KxError } from '@/lib/kx/client';
 import { describeKxError, type DescribedError } from '@/lib/kx/errors';
 import { SUPPORT_CONTACT } from '@/lib/support';
@@ -21,7 +22,7 @@ import { trimAmount } from '@/lib/kx/decimal';
 import { findRecentOrder, type RecentOrder } from '@/lib/kx/recent-orders';
 import { refundForwarding, refundOnFileHint } from '@/lib/kx/refund';
 import { safeHttpsUrl } from '@/lib/kx/safe-url';
-import { formatCountdown, formatDuration, formatTime } from '@/lib/format';
+import { formatCountdown, formatDuration, formatTime, shortAddress } from '@/lib/format';
 import type { Order, OrderStatus } from '@/lib/kx/types';
 
 const POLL_MS = 15_000;
@@ -183,6 +184,7 @@ export default function OrderView({ id: rawId }: { id: string }) {
       ticker: leg?.ticker ?? currency.toUpperCase(),
       networkName: leg?.networkName ?? network,
       icon: leg?.icon ?? null,
+      lightning: isLightningPayout(leg),
     };
   };
 
@@ -450,9 +452,10 @@ export default function OrderView({ id: rawId }: { id: string }) {
             </dd>
             <dt>Rate</dt>
             <dd>{order.rate_type === 'variable' ? 'Variable' : 'Fixed'}</dd>
-            <dt>Recipient</dt>
+            <dt>{to.lightning ? 'Lightning invoice' : 'Recipient'}</dt>
             <dd>
-              <span className="mono">{order.to.address}</span>
+              <span className="mono">{to.lightning ? shortAddress(order.to.address, 16, 10) : order.to.address}</span>
+              {to.lightning && <CopyButton value={order.to.address} />}
               {order.to.memo && <span className="mono faint"> · {order.to.memo}</span>}
             </dd>
             <dt>Refund address</dt>

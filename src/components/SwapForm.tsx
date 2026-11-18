@@ -7,6 +7,10 @@
 //   Review order       POST /addresses/validate (advisory format check)
 //   Create order       POST /orders with an Idempotency-Key, then /orders/{id}
 //
+// Lightning payouts (lib/kx/lightning.ts): the recipient field takes a BOLT11
+// invoice, POST /addresses/validate reads its amount and expiry, and the
+// offer is quoted for exactly that amount (amount_type "to", fixed rate).
+//
 // Display requirements: Kotova X by name and icon next to the offer, and the
 // source notice (plus the fallback sources' notices) visible before the user
 // creates the order. https://docs.kotova.io/x/api/display-requirements
@@ -39,7 +43,8 @@ import { useCatalog } from '@/lib/kx/use-catalog';
 import { defaultAmount, legKey, maxFractionDigits, servingSources, type Leg } from '@/lib/kx/catalog';
 import { kx, KxError, newIdempotencyKey, UI_LANG } from '@/lib/kx/client';
 import { describeKxError, settlesOrderRequest, type DescribedError, type ErrorField } from '@/lib/kx/errors';
-import { cleanAmountInput, invertRate, toRequestAmount, trimAmount } from '@/lib/kx/decimal';
+import { canonicalAmount, cleanAmountInput, fractionDigits, invertRate, sameAmount, toRequestAmount, trimAmount } from '@/lib/kx/decimal';
+import { invoiceExpiryWarning, invoiceProblem, invoiceText, isLightningPayout, readInvoice, type InvoiceInfo } from '@/lib/kx/lightning';
 import { rememberOrder } from '@/lib/kx/recent-orders';
 import { fallbacksNeedingRefund } from '@/lib/kx/refund';
 import { formatDuration, formatTime, shortAddress } from '@/lib/format';
@@ -152,7 +157,9 @@ function quoteMatches(quote: Quote, from: Leg, to: Leg, rateType: RateType): boo
     quote.from.network.toLowerCase() === from.network &&
     quote.to.currency.toUpperCase() === to.currency &&
     quote.to.network.toLowerCase() === to.network &&
-    quote.rate_type === rateType
+    quote.rate_type === rateType &&
+    // A Lightning payout is quoted for the amount received (the invoice's).
+    (!isLightningPayout(to) || quote.amount_type === 'to')
   );
 }
 
@@ -280,6 +287,11 @@ export default function SwapForm() {
 
   const noServingSource = !!from && !!to && servingSources(from, to, excluded).length === 0;
 
+  // A Lightning payout is quoted at a fixed rate, for the amount received. The
+  // stored rate type stays as it is and applies again to other pairs.
+  const lightningPayout = isLightningPayout(to);
+  const quoteRateType: RateType = lightningPayout ? 'fixed' : rateType;
+
   // ------------------------------------------------------------------ the quote
   const [quote, setQuote] = useState<Quote | null>(null);
   /** expires_at on this browser's clock (corrected by the API's Date header). */
@@ -298,7 +310,8 @@ export default function SwapForm() {
     if (stepRef.current === 'submitting' || stepRef.current === 'checking' || pendingRef.current) return;
     const typedLeg = amountSide === 'from' ? from : to;
     const requestAmount = toRequestAmount(amount, maxFractionDigits(typedLeg));
-    if (!requestAmount || noServingSource) {
+    // Lightning: only once the amount is the one received (see the Lightning section below).
+    if (!requestAmount || noServingSource || (lightningPayout && amountSide !== 'to')) {
       setQuote(null);
       setQuoteError(null);
       setQuoteErrorRaw(null);
@@ -315,7 +328,7 @@ export default function SwapForm() {
             to: { currency: to.currency, network: to.network },
             amount: requestAmount,
             amount_type: amountSide,
-            rate_type: rateType,
+            rate_type: quoteRateType,
             ...(excludedList.length ? { exclude_sources: excludedList } : {}),
             ...(freezeProtection ? { freeze_protection: true } : {}),
             lang: UI_LANG,
@@ -349,7 +362,7 @@ export default function SwapForm() {
     };
     // nameOf only shapes error text; it must not trigger a new quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefsLoaded, from?.key, to?.key, amount, amountSide, rateType, excludedKey, freezeProtection, noServingSource, quoteNonce]);
+  }, [prefsLoaded, from?.key, to?.key, amount, amountSide, quoteRateType, excludedKey, freezeProtection, noServingSource, quoteNonce]);
 
   // A quote is usable until expires_at: then ask for a new one (only while the
   // page is visible, to spare the API budget).
@@ -374,7 +387,7 @@ export default function SwapForm() {
   }, [quoteExpired, step, pending]);
 
   // The quote on screen must be for the pair and rate type on screen.
-  const liveQuote = quote && from && to && quoteMatches(quote, from, to, rateType) ? quote : null;
+  const liveQuote = quote && from && to && quoteMatches(quote, from, to, quoteRateType) ? quote : null;
 
   // ------------------------------------------------------------------ addresses
   const [address, setAddress] = useState('');
@@ -417,6 +430,62 @@ export default function SwapForm() {
     setFieldErrors(drop);
     setFieldWarnings(drop);
   }, [fromNetwork]);
+
+  // ------------------------------------------------------------------ Lightning payouts
+  // The recipient field takes the invoice. Its amount is the amount received:
+  // the offer is quoted for it (amount_type "to"), and the send field shows
+  // what the source asks for it. Until an invoice is pasted, the user may type
+  // the amount to see an offer, then create an invoice for exactly that.
+  const [invoiceInfo, setInvoiceInfo] = useState<InvoiceInfo | null>(null);
+  const [invoiceReadError, setInvoiceReadError] = useState<string | null>(null);
+  const invoiceInput = lightningPayout ? invoiceText(address) : '';
+  /** The read of the invoice now in the field (never an earlier one). */
+  const invoice = invoiceInfo && invoiceInfo.text === invoiceInput && invoiceInput ? invoiceInfo : null;
+
+  // Switching to a Lightning payout: the typed amount was the one sent, so it
+  // no longer applies.
+  useEffect(() => {
+    if (!lightningPayout || amountSide === 'to') return;
+    setAmountSide('to');
+    setAmount('');
+  }, [lightningPayout, amountSide]);
+
+  // Read the invoice's amount and expiry (POST /addresses/validate), debounced.
+  useEffect(() => {
+    setInvoiceReadError(null);
+    if (!to || !invoiceInput || !lightningPayout) return;
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const info = await readInvoice(to, invoiceInput, ctrl.signal);
+        if (!ctrl.signal.aborted) setInvoiceInfo(info);
+      } catch (err) {
+        if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+        setInvoiceReadError(`The invoice could not be read right now (${describeKxError(err, nameOf).message}). It is checked again when you review the order.`);
+      }
+    }, QUOTE_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+    // nameOf only shapes error text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [to?.key, invoiceInput, lightningPayout]);
+
+  // An invoice with a usable amount sets the amount received.
+  const invoiceAmount =
+    lightningPayout && to && invoice?.valid && invoice.amount !== null && fractionDigits(invoice.amount) <= maxFractionDigits(to)
+      ? canonicalAmount(invoice.amount)
+      : null;
+  useEffect(() => {
+    if (!invoiceAmount) return;
+    amountTypedRef.current = true;
+    setAmountSide('to');
+    setAmount(invoiceAmount);
+  }, [invoiceAmount, to?.key]);
+
+  const invoiceError = lightningPayout && to && invoice ? invoiceProblem(invoice, to, now) : null;
+  const invoiceWarning = lightningPayout && invoice && !invoiceError ? invoiceExpiryWarning(invoice, from, now) : null;
 
   const toMemoSupported = liveQuote ? liveQuote.requirements.to_memo === 'optional' : !!to?.memo.supported;
   const refundMemoSupported = liveQuote ? liveQuote.requirements.refund_memo === 'optional' : !!from?.memo.supported;
@@ -483,6 +552,27 @@ export default function SwapForm() {
     return { errors, warnings };
   }
 
+  /** Lightning: the invoice must be for exactly the offer's amount and stay valid long enough (POST /orders checks it again). */
+  async function checkInvoice(leg: Leg, value: string, q: Quote) {
+    const errors: FieldMessages = {};
+    const warnings: FieldMessages = {};
+    let info: InvoiceInfo;
+    try {
+      info = await readInvoice(leg, invoiceText(value));
+    } catch (err) {
+      // Advisory only: on a rate limit or an outage, go on (the order request checks again).
+      warnings.to_address = `The invoice could not be checked here (${describeKxError(err, nameOf).message}). Kotova X checks it when the order is created.`;
+      return { errors, warnings };
+    }
+    setInvoiceInfo(info);
+    const problem = invoiceProblem(info, leg, Date.now());
+    if (problem) errors.to_address = problem;
+    else if (info.amount !== null && !sameAmount(info.amount, q.to.amount)) {
+      errors.to_address = `The invoice is for ${trimAmount(info.amount)} ${leg.ticker}, the offer for ${trimAmount(q.to.amount)} ${leg.ticker}. Wait for the new offer, then review again.`;
+    }
+    return { errors, warnings };
+  }
+
   const handleReview = async () => {
     if (!from || !to || step !== 'edit' || pending) return;
     setActionError(null);
@@ -490,7 +580,11 @@ export default function SwapForm() {
     const toAddr = address.trim();
     const refund = refundAddress.trim();
     const errors: FieldMessages = {};
-    if (!toAddr) errors.to_address = `Enter the ${to.ticker} (${to.networkName}) address that receives the swap.`;
+    if (!toAddr) {
+      errors.to_address = lightningPayout
+        ? 'Paste the Lightning invoice that receives the swap: create it in your wallet for the amount you want to receive.'
+        : `Enter the ${to.ticker} (${to.networkName}) address that receives the swap.`;
+    }
     if (refundRequired && !refund) errors.refund_address = `${liveQuote?.source.name ?? 'The source'} needs a refund address for this order.`;
     if (!refund && refundMemo.trim()) errors.refund_address = 'Enter the refund address that goes with this memo.';
     if (Object.keys(errors).length) {
@@ -503,7 +597,7 @@ export default function SwapForm() {
     }
     setStep('checking');
     const [recipient, refundCheck] = await Promise.all([
-      checkAddress(to, toAddr, toMemoSupported ? memo.trim() : '', 'to_address', 'to_memo'),
+      lightningPayout ? checkInvoice(to, toAddr, liveQuote) : checkAddress(to, toAddr, toMemoSupported ? memo.trim() : '', 'to_address', 'to_memo'),
       refund ? checkAddress(from, refund, refundMemoSupported ? refundMemo.trim() : '', 'refund_address', 'refund_memo') : null,
     ]);
     const allErrors = { ...recipient.errors, ...(refundCheck?.errors ?? {}) };
@@ -673,7 +767,7 @@ export default function SwapForm() {
     const refund = refundAddress.trim();
     const body: OrderRequest = {
       quote_id: q.quote_id,
-      to_address: address.trim(),
+      to_address: lightningPayout ? invoiceText(address) : address.trim(),
       ...(toMemoSupported && memo.trim() ? { to_memo: memo.trim() } : {}),
       ...(refund ? { refund_address: refund } : {}),
       ...(refund && refundMemoSupported && refundMemo.trim() ? { refund_memo: refundMemo.trim() } : {}),
@@ -727,6 +821,7 @@ export default function SwapForm() {
   // the variable rate in one click (e.g. Chainflip with freeze protection).
   const noSourceReasons = quoteErrorRaw?.code === 'no_source_available' && Array.isArray(quoteErrorRaw.details.reasons) ? quoteErrorRaw.details.reasons : [];
   const variableRateMayHelp =
+    !lightningPayout &&
     rateType === 'fixed' &&
     noSourceReasons.some((r) => typeof r === 'object' && r !== null && (r as { reason?: unknown }).reason === 'rate_type_unsupported');
   const applyAmount = (value: string) => {
@@ -767,7 +862,14 @@ export default function SwapForm() {
             <h2>Swap</h2>
             <div className="segmented" role="group" aria-label="Rate type">
               {(['fixed', 'variable'] as const).map((rt) => (
-                <button key={rt} type="button" aria-pressed={rateType === rt} disabled={locked} onClick={() => setRateType(rt)}>
+                <button
+                  key={rt}
+                  type="button"
+                  aria-pressed={quoteRateType === rt}
+                  disabled={locked || (lightningPayout && rt === 'variable')}
+                  title={lightningPayout && rt === 'variable' ? 'Lightning payouts are fixed rate: the order pays exactly the invoice amount.' : undefined}
+                  onClick={() => setRateType(rt)}
+                >
                   {rt === 'fixed' ? 'Fixed rate' : 'Variable rate'}
                 </button>
               ))}
@@ -787,7 +889,7 @@ export default function SwapForm() {
                 autoComplete="off"
                 placeholder={amountSide === 'to' && quoting ? '...' : '0'}
                 value={fromValue}
-                disabled={locked || !from}
+                disabled={locked || !from || lightningPayout}
                 onChange={(e) => onAmountInput('from', e.target.value)}
               />
               <button type="button" className="asset-button" disabled={locked || !catalog} onClick={() => setPicker('from')} aria-label="Choose what you send">
@@ -809,7 +911,7 @@ export default function SwapForm() {
                 {minFrom && (
                   <>
                     Min{' '}
-                    <button type="button" className="btn-link" disabled={locked} onClick={() => applyAmount(minFrom)}>
+                    <button type="button" className="btn-link" disabled={locked || lightningPayout} onClick={() => applyAmount(minFrom)}>
                       {minFrom}
                     </button>
                   </>
@@ -818,7 +920,7 @@ export default function SwapForm() {
                 {maxFrom && (
                   <>
                     Max{' '}
-                    <button type="button" className="btn-link" disabled={locked} onClick={() => applyAmount(maxFrom)}>
+                    <button type="button" className="btn-link" disabled={locked || lightningPayout} onClick={() => applyAmount(maxFrom)}>
                       {maxFrom}
                     </button>
                   </>
@@ -836,7 +938,7 @@ export default function SwapForm() {
 
           <div className="field">
             <label className="field-label" htmlFor="amount-to">
-              You receive{rateType === 'variable' && <span className="tag">Estimate</span>}
+              You receive{quoteRateType === 'variable' && <span className="tag">Estimate</span>}
             </label>
             <div className="amount-row">
               <input
@@ -847,7 +949,7 @@ export default function SwapForm() {
                 autoComplete="off"
                 placeholder={amountSide === 'from' && quoting ? '...' : '0'}
                 value={toValue}
-                disabled={locked || !to}
+                disabled={locked || !to || !!invoiceAmount}
                 onChange={(e) => onAmountInput('to', e.target.value)}
               />
               <button type="button" className="asset-button" disabled={locked || !catalog} onClick={() => setPicker('to')} aria-label="Choose what you receive">
@@ -864,6 +966,14 @@ export default function SwapForm() {
                 )}
               </button>
             </div>
+            {lightningPayout && (
+              <p className="hint" style={{ marginTop: 6 }}>
+                {invoiceAmount
+                  ? 'The amount of your Lightning invoice. To receive another amount, paste another invoice.'
+                  : 'Lightning: paste your invoice under Addresses and its amount is used here. Or type an amount, then create an invoice for exactly that amount.'}
+                {amountError ? ' Change the amount you receive to get within the limits.' : ''}
+              </p>
+            )}
           </div>
         </div>
 
@@ -936,7 +1046,9 @@ export default function SwapForm() {
                 ? 'Finding the best offer...'
                 : amountError
                   ? 'No offer for this amount.'
-                  : 'Enter an amount to see the best offer and its source notice.'}
+                  : lightningPayout
+                    ? 'Paste your Lightning invoice under Addresses, or type the amount you receive, to see the best offer and its source notice.'
+                    : 'Enter an amount to see the best offer and its source notice.'}
             </p>
           )}
         </div>
@@ -946,9 +1058,22 @@ export default function SwapForm() {
           <h2 className="section-title">Addresses</h2>
           <Field
             id="to-address"
-            label={to ? `Recipient address (${to.ticker} on ${to.networkName})` : 'Recipient address'}
-            error={fieldErrors.to_address}
-            warning={fieldWarnings.to_address}
+            label={
+              to && lightningPayout
+                ? `Lightning invoice (${to.ticker} on ${to.networkName})`
+                : to
+                  ? `Recipient address (${to.ticker} on ${to.networkName})`
+                  : 'Recipient address'
+            }
+            error={fieldErrors.to_address ?? invoiceError}
+            warning={fieldWarnings.to_address ?? invoiceWarning ?? invoiceReadError}
+            hint={
+              !lightningPayout
+                ? null
+                : invoice?.valid && invoice.amount !== null && invoice.expiresAt !== null
+                  ? `Invoice for ${trimAmount(invoice.amount)} ${to?.ticker ?? 'BTC'}, valid until ${formatTime(new Date(invoice.expiresAt).toISOString())}.`
+                  : 'Create an invoice in your Lightning wallet for the amount you want to receive, valid for at least 10 more minutes (an hour or more is safer), and paste it here.'
+            }
           >
             <input
               id="to-address"
@@ -957,6 +1082,7 @@ export default function SwapForm() {
               autoComplete="off"
               autoCapitalize="off"
               spellCheck={false}
+              placeholder={lightningPayout ? 'lnbc...' : undefined}
               value={address}
               readOnly={locked}
               aria-invalid={fieldErrors.to_address ? 'true' : undefined}
@@ -1062,9 +1188,20 @@ export default function SwapForm() {
                     You send {trimAmount(liveQuote.from.amount)} {from.ticker} on {from.networkName}.
                   </li>
                   <li>
-                    You receive {liveQuote.rate_type === 'variable' ? 'about ' : ''}
-                    {trimAmount(liveQuote.to.amount)} {to.ticker} at <span className="mono">{shortAddress(address.trim(), 12, 8)}</span>
-                    {toMemoSupported && memo.trim() ? ` (${to.memo.label || 'memo'} ${memo.trim()})` : ''}.
+                    {lightningPayout ? (
+                      <>
+                        You receive exactly {trimAmount(liveQuote.to.amount)} {to.ticker} on {to.networkName}, paid to your invoice{' '}
+                        <span className="mono">{shortAddress(invoiceText(address), 12, 8)}</span>
+                        {invoice?.expiresAt ? `, valid until ${formatTime(new Date(invoice.expiresAt).toISOString())}` : ''}. The payout is made once
+                        your deposit has confirmed, so the invoice must still be valid then.
+                      </>
+                    ) : (
+                      <>
+                        You receive {liveQuote.rate_type === 'variable' ? 'about ' : ''}
+                        {trimAmount(liveQuote.to.amount)} {to.ticker} at <span className="mono">{shortAddress(address.trim(), 12, 8)}</span>
+                        {toMemoSupported && memo.trim() ? ` (${to.memo.label || 'memo'} ${memo.trim()})` : ''}.
+                      </>
+                    )}
                   </li>
                   <li>
                     {refundAddress.trim() ? (

@@ -20,6 +20,8 @@ export interface Leg {
   type: Currency['type'];
   icon: Icon | null;
   memo: CurrencyNetwork['memo'];
+  /** `standard`, or `lightning_invoice` on Lightning (the address is a BOLT11 invoice). */
+  addressFormat: CurrencyNetwork['address_format'];
   decimals: number;
   send: boolean;
   receive: boolean;
@@ -58,6 +60,7 @@ export function buildCatalog(currencies: CurrencyList, sources: SourceList | nul
         type: c.type,
         icon: n.icon ?? c.icon ?? null,
         memo: n.memo,
+        addressFormat: n.address_format,
         decimals: n.decimals,
         send: n.send,
         receive: n.receive,

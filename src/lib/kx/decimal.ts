@@ -39,3 +39,25 @@ export function invertRate(rate: string): string {
   const inv = 1 / n;
   return trimAmount(inv >= 1e-6 ? inv.toPrecision(8) : inv.toFixed(18));
 }
+
+/** A decimal string without leading or trailing zeros ("0010.500" -> "10.5"); anything else unchanged. */
+export function canonicalAmount(value: string): string {
+  const s = value.trim();
+  if (!/^[0-9]+(\.[0-9]*)?$/.test(s)) return s;
+  const [int, frac = ''] = s.split('.');
+  const i = int.replace(/^0+(?=\d)/, '');
+  const f = frac.replace(/0+$/, '');
+  return f ? `${i}.${f}` : i;
+}
+
+/** The number of fraction digits that count ("0.00100" -> 3). */
+export function fractionDigits(value: string): number {
+  const c = canonicalAmount(value);
+  const dot = c.indexOf('.');
+  return dot < 0 ? 0 : c.length - dot - 1;
+}
+
+/** Same decimal value ("0.0010" and "0.001"). */
+export function sameAmount(a: string, b: string): boolean {
+  return canonicalAmount(a) === canonicalAmount(b);
+}

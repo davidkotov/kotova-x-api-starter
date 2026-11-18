@@ -188,6 +188,8 @@ export interface paths {
          *     A quote pins its sources and the pair; it does not lock a rate. The order's own amounts are canonical. Quotes are served from a shared cache for up to 30 s (fixed) or 60 s (variable) (`X-Kotova-Quote-Cache: hit`); quotes that ask the sources count against the fan-out allowance (429 `details.reason: fanout`).
          *
          *     Without a quote: 422 `amount_below_min` / `amount_above_max` with the bounds, 503 `sources_unavailable` when sources could not be reached (retry after 10 s), 422 `pair_unavailable`, or 422 `no_source_available` with the filter reasons.
+         *
+         *     **Lightning.** To pay out to Lightning (`to.network: lightning`), quote the invoice's exact amount: `amount_type: to` and `rate_type: fixed` (else 400 `invalid_request`, reason `lightning_requires_amount_type_to` / `lightning_requires_fixed`). Only a source that creates for an exact receive amount serves it (today FF.io). The order's `to_address` is then the invoice.
          */
         post: operations["createQuote"];
         delete?: never;
@@ -220,6 +222,8 @@ export interface paths {
          *     **Next best source.** By default (`retry_next_best_source` true) the order does not fail when the quote's source cannot take it — it is unavailable, refuses the order, or cannot create it right now: the order is placed with the first of the quote's `fallback_sources` that can, in their order, and only that order is answered. Its `source` names the source that created it (show that notice from now on), its amounts are that source's, and `warnings` has `source_fallback` {`quoted_source`, `reason`} (again on an Idempotency-Key replay; GET /orders/{id} does not carry it). Because of this, show the notices of the quote's `fallback_sources` before the end user confirms, or send `retry_next_best_source: false` to use the quote's source only. An address or memo a source rejects (422 `invalid_address`, `details.field` `to_address`, `to_memo`, `refund_address` or `refund_memo` — also when the source only says so in its message: it names the field, or says the address or memo is invalid, missing or similar) and an unknown outcome are never retried at another source. The request costs 50 once, however many sources are tried.
          *
          *     A failed create — no source took the order: 502 `source_error` with `details.retryable` (true: nothing was created — re-quote and retry; false with `reason: outcome_unknown`: the source may hold the order, so the quote and the Idempotency-Key stay used — contact api@kotova.io with the request id). 503 `source_unavailable`: no source could take an order right now (not available, or the last one asked was rate limited) — re-quote. With `retry_next_best_source`, `details.sources_tried` lists every source tried and why it did not take the order — also on a 422 `invalid_address` or a 500 from one of the quote's `fallback_sources`.
+         *
+         *     **Guard and e-mails.** `min_receive_amount` refuses an order that would pay out less (422 `min_receive_not_met`; see the field). `notification_email` makes Kotova e-mail the end user about the order.
          */
         post: operations["createOrder"];
         delete?: never;
@@ -241,6 +245,66 @@ export interface paths {
          */
         get: operations["getOrder"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an order that needs attention
+         * @description The end user's choice for an order in `action_required` (or an FF.io order shortly after it expired): `continue` the swap or `refund` the deposit — what the order page offers, through the API. Available when the order's `actions` list a `resolve` with that resolution (else 409 `action_not_available`, before the source is asked). A refund uses `refund_address`, else the address on file; once on file it is locked (a different one: 409 `refund_address_locked`). The source has the last word: 409 `source_not_ready` when it does not accept the choice yet, 422 `invalid_address` when it refuses the refund address (the address is removed; send another). Act only on your end user's instruction, and show them the options, consequences and deadlines (`available_until`) first. Weight 10; an error before the source is asked costs 1. One action per order at a time.
+         */
+        post: operations["resolveOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{id}/refund-address": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Give the source a refund address
+         * @description Records a refund address with the order's source when the order's `actions` list `set_refund_address` (today SideShift: a shift held for review, or an expired one, without a refund address). A shift under review gets the address without a refund being committed, as it may still complete. Weight 10; an error before the source is asked costs 1.
+         */
+        put: operations["setOrderRefundAddress"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{id}/notification-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the end user's notification e-mail
+         * @description Sets the address Kotova sends the order's e-mails to (completed, refunded, action required, refund address rejected), or stops them with `email: null`. Send it only with your end user's consent (API Terms). No source is called.
+         */
+        put: operations["setOrderNotificationEmail"];
         post?: never;
         delete?: never;
         options?: never;
@@ -382,7 +446,7 @@ export interface components {
          * @description Stable error codes. New codes may be added at any time: fall back on the HTTP status for a code you do not know. Each code is documented at https://docs.kotova.io/x/api/errors#<code>.
          * @enum {string}
          */
-        ErrorCode: "invalid_request" | "unauthorized" | "key_revoked" | "affiliate_inactive" | "not_found" | "order_not_found" | "quote_not_found" | "method_not_allowed" | "quote_already_used" | "idempotency_conflict" | "idempotency_in_progress" | "quote_expired" | "order_archived" | "payload_too_large" | "unsupported_media_type" | "unknown_currency" | "currency_unavailable" | "same_currency" | "pair_unavailable" | "no_source_available" | "amount_below_min" | "amount_above_max" | "refund_address_required" | "invalid_address" | "memo_not_supported" | "rate_limited" | "order_cap_reached" | "internal_error" | "source_error" | "source_unavailable" | "sources_unavailable" | "service_unavailable";
+        ErrorCode: "invalid_request" | "unauthorized" | "key_revoked" | "affiliate_inactive" | "not_found" | "order_not_found" | "quote_not_found" | "method_not_allowed" | "quote_already_used" | "idempotency_conflict" | "idempotency_in_progress" | "action_not_available" | "refund_address_locked" | "source_not_ready" | "quote_expired" | "order_archived" | "payload_too_large" | "unsupported_media_type" | "unknown_currency" | "currency_unavailable" | "same_currency" | "pair_unavailable" | "no_source_available" | "amount_below_min" | "amount_above_max" | "refund_address_required" | "invalid_address" | "memo_not_supported" | "min_receive_not_met" | "invalid_lightning_invoice" | "rate_limited" | "order_cap_reached" | "internal_error" | "source_error" | "source_unavailable" | "sources_unavailable" | "service_unavailable";
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
             /** @description For people; may change. Branch on `code`, never on the message. */
@@ -392,7 +456,7 @@ export interface components {
             /**
              * @description Machine-readable specifics, when the code has any:
              *
-             *     - `invalid_request`: `field` (dot path, e.g. `from.currency`, or a header / parameter name) and `reason` — one of `required`, `invalid_type`, `invalid_format`, `invalid_value` (with `allowed`), `unknown_field`, `unknown_parameter`, `duplicate_parameter`, `too_long`, `too_many`, `too_many_decimals` (with `max_fraction_digits`), `too_many_integer_digits`, `not_positive`, `not_public_unicast`, `from_or_to_required`, `not_allowed_with_quote_id`, `requires_refund_address`, `invalid_json`, `invalid_encoding`.
+             *     - `invalid_request`: `field` (dot path, e.g. `from.currency`, or a header / parameter name) and `reason` — one of `required`, `invalid_type`, `invalid_format`, `invalid_value` (with `allowed`), `unknown_field`, `unknown_parameter`, `duplicate_parameter`, `too_long`, `too_many`, `too_many_decimals` (with `max_fraction_digits`), `too_many_integer_digits`, `not_positive`, `not_public_unicast`, `from_or_to_required`, `not_allowed_with_quote_id`, `not_allowed_with_continue`, `lightning_requires_amount_type_to`, `lightning_requires_fixed`, `requires_refund_address`, `invalid_json`, `invalid_encoding`.
              *     - `rate_limited`: `limit`, `remaining`, `reset_seconds`, and `weight` (the account budget) — or `reason`: `fanout` (quotes that ask a source live), `ip` (keyless calls per IP) or `auth_failures` (failed authentications per IP).
              *     - `order_cap_reached`: `cap` (`open_unfunded` | `created_24h`), `limit`, `current`.
              *     - `unknown_currency`, `currency_unavailable`: `side` (`from` | `to`; absent on /addresses/validate), `currency`, `network`. `same_currency`: `currency`, `network`. `pair_unavailable`: `from`, `to`.
@@ -401,11 +465,14 @@ export interface components {
              *     - `sources_unavailable`: `retry_after_seconds`.
              *     - `quote_not_found`, `quote_expired` (+ `expires_at`), `quote_already_used` (+ `order_id`, null while unknown): `quote_id`.
              *     - `order_not_found`, `order_archived`: `id`.
+             *     - `action_not_available`: `id`, `actions` (what the order offers now), `resolution` when one was asked for, `reason: in_progress` while another action on the order runs. `refund_address_locked`: `id`, `field`. `source_not_ready`: `id`, `source`, `source_message`.
+             *     - `min_receive_not_met`: `min_receive_amount`, `to_amount` (the best quoted amount, or the created one), `source`, `phase` (`before_create`: nothing was created; `after_create`: the order was created below the minimum, archived and never handed out).
+             *     - `invalid_lightning_invoice`: `field` (`to_address`), `reason` (`not_an_invoice`, `no_amount`, `amount_mismatch` with `invoice_amount` and `quoted_amount`, `expired`, `expires_too_soon` with `expires_at`).
              *     - `invalid_address`: `field` (`to_address` | `refund_address`; with `rejected_by_source` also `to_memo` | `refund_memo`), `reason` (`format` | `rejected_by_source`), and `network` or `source`. When the source did not say which field it refused, `field` is the best guess and `fields` lists every candidate (e.g. [`to_address`, `refund_address`]): check them all. `memo_not_supported`: `field`, `network`. `refund_address_required`: `field`, `network`, `source`.
              *     - `source_error`: `source`, `retryable` (true: nothing was created — re-quote and retry; false: do not retry blindly) and, when the outcome is unknown, `reason`: `outcome_unknown` (the source may hold the order) or `idempotency_outcome_unknown` (an earlier request with this Idempotency-Key had that outcome, or contacted a source and never finished; `source` is absent).
              *     - `idempotency_conflict`: `header` (`Idempotency-Key`).
              *     - `source_unavailable`: `source`, `reason` (`disabled` | `paused` | `busy` | `rate_limited`), `requote: true`.
-             *     - POST /orders with `retry_next_best_source` (default): a `source_error` or `source_unavailable` from its create attempts — and an `invalid_address` or `internal_error` from one of the quote's `fallback_sources` — also carries `sources_tried` [{`source`, `reason`}]: every source of the quote the order was tried at, in order (the quote's source first, then its `fallback_sources`). The `idempotency_outcome_unknown` answer (a replay of a blocked Idempotency-Key) does not. `reason`: `disabled`, `paused`, `busy` (not available, not asked); `rejected`, `unavailable`, `rate_limited` (asked, nothing was created); `invalid_address` (asked: it refused the address, which is sent to no other source — the last entry); `internal` (asked: our side failed and nothing was created — the last entry); `outcome_unknown` (asked, the order may exist there — always the last entry); `refund_address_required` (skipped: no `refund_address` sent); `deadline` (skipped: the request had run too long to ask another source, or its create could not have finished in time). The other fields describe the last source asked; when none was asked (503 `source_unavailable`), the quote's source.
+             *     - POST /orders with `retry_next_best_source` (default): a `source_error` or `source_unavailable` from its create attempts — and an `invalid_address` or `internal_error` from one of the quote's `fallback_sources` — also carries `sources_tried` [{`source`, `reason`}]: every source of the quote the order was tried at, in order (the quote's source first, then its `fallback_sources`). The `idempotency_outcome_unknown` answer (a replay of a blocked Idempotency-Key) does not. `reason`: `disabled`, `paused`, `busy` (not available, not asked); `rejected`, `unavailable`, `rate_limited` (asked, nothing was created); `invalid_address` (asked: it refused the address, which is sent to no other source — the last entry); `internal` (asked: our side failed and nothing was created — the last entry); `outcome_unknown` (asked, the order may exist there — always the last entry); `refund_address_required` (skipped: no `refund_address` sent); `deadline` (skipped: the request had run too long to ask another source, or its create could not have finished in time); `min_receive_not_met` (skipped: its quoted amount is below `min_receive_amount` — or, as the last entry, the order it created fell short and was archived). The other fields describe the last source asked; when none was asked (503 `source_unavailable`), the quote's source.
              *     - `service_unavailable`: `reason` — `disabled` (the API is not enabled), `maintenance`, `catalog_missing` or `storage_unavailable` (extensible: new reasons may be added). Retry after the seconds in `Retry-After` when it is sent.
              *     - `method_not_allowed`: `allowed`. `payload_too_large`: `max_bytes`. `internal_error`: `order_id` when an order was created but could not be read back.
              */
@@ -430,8 +497,9 @@ export interface components {
          *     - `unsupported_lang` {`field`, `supported`}: the notice is in English.
          *     - `end_user_ip_missing` {`sources`}: these sources need `end_user_ip` and were skipped.
          *     - `sources_temporarily_skipped` {`sources`}: these sources could not be asked right now (e.g. the source is paused, or this account used up its per-account share of that source's quotes for the current minute); a later quote may be better.
-         *     - `source_fallback` {`quoted_source`, `reason`}: POST /orders — the quote's source could not take the order (`reason`: `disabled`, `paused` or `busy` — not available; `rejected`, `unavailable` or `rate_limited` — it was asked and created nothing), so the order was placed with the next of the quote's `fallback_sources`: the order's `source` names it. The 201 and its Idempotency-Key replays only: GET /orders/{id} does not carry it (compare the order's `source.slug` with the quote's).
+         *     - `source_fallback` {`quoted_source`, `reason`}: POST /orders — the quote's source could not take the order (`reason`: `disabled`, `paused` or `busy` — not available; `rejected`, `unavailable` or `rate_limited` — it was asked and created nothing; `min_receive_not_met` — its quoted amount was below `min_receive_amount`), so the order was placed with the next of the quote's `fallback_sources`: the order's `source` names it. The 201 and its Idempotency-Key replays only: GET /orders/{id} does not carry it (compare the order's `source.slug` with the quote's).
          *     - `refund_address_on_file` {`source`, `intake`}: POST /orders — the order's source does not take a refund address when the order is created, so `refund_address` is kept with the order (`refund.forwarded: false`): `intake` `when_needed` — it is given to the source only if the order needs a refund (FF.io); `none` — support reference only, the source handles refunds itself (CCE.CASH). The 201 and its Idempotency-Key replays only.
+         *     - `notification_email_not_saved` {`field`}: POST /orders — the order was created, but `notification_email` could not be saved; set it with PUT /orders/{id}/notification-email.
          */
         Warning: {
             /**
@@ -571,7 +639,7 @@ export interface components {
             icon: components["schemas"]["Icon"] | null;
             /** @description Usable as `from` through the API right now. */
             send: boolean;
-            /** @description Usable as `to` through the API right now (never on Lightning in v1). */
+            /** @description Usable as `to` through the API right now. On Lightning only through a source that creates for an exact receive amount (today FF.io), with a fixed-rate quote with `amount_type: to`. */
             receive: boolean;
             /** @description Sources that accept this leg as `from` — apply your own exclusions client-side. */
             send_sources: components["schemas"]["SourceSlug"][];
@@ -819,7 +887,7 @@ export interface components {
              * @example q_5mJc2Vq9XkT3nR8bYw1LdP
              */
             quote_id: string;
-            /** @description Where the end user receives `to`. Checked against the to network's address format (422 `invalid_address`); the source makes the binding check. */
+            /** @description Where the end user receives `to`. Checked against the to network's address format (422 `invalid_address`); the source makes the binding check. Network `lightning`: a mainnet BOLT11 invoice of exactly the quoted amount, valid for at least 10 more minutes (422 `invalid_lightning_invoice`). */
             to_address: string;
             /** @description Memo / destination tag of the recipient. Only on networks with memos (422 `memo_not_supported`). */
             to_memo?: string | null;
@@ -835,6 +903,13 @@ export interface components {
              * @example true
              */
             retry_next_best_source?: boolean;
+            /** @description The least the end user must receive, in `to` units (the guard). A source whose quoted amount is below it is not asked; if none is left: 422 `min_receive_not_met`, nothing created. When the created order still pays out less (a fixed rate is re-minted at creation; a variable rate's amount is an estimate), the order is archived and never handed out: 422 `min_receive_not_met` with `phase: after_create`. At a variable rate the final amount can still differ from the estimate checked here. */
+            min_receive_amount?: components["schemas"]["RequestAmount"] | null;
+            /**
+             * Format: email
+             * @description The end user's e-mail address: Kotova then sends the order's e-mails (completed, refunded, action required, refund address rejected) there, in `lang`. Only with the end user's consent (API Terms). Change or stop it later with PUT /orders/{id}/notification-email.
+             */
+            notification_email?: string | null;
         };
         /**
          * @description CLOSED enum — a new value would only come with /x/v2:
@@ -946,6 +1021,10 @@ export interface components {
             estimated_duration_seconds: number | null;
             quote_id: components["schemas"]["QuoteId"] | null;
             partner_order_id: components["schemas"]["PartnerOrderId"] | null;
+            /** @description The end user's address for Kotova's order e-mails, as you set it; null when none. */
+            notification_email: string | null;
+            /** @description What you can do for the order now, on your end user's instruction; empty when nothing (and always for archived orders). */
+            actions: components["schemas"]["OrderAction"][];
             provider: components["schemas"]["Provider"];
             source: components["schemas"]["OrderSource"];
             warnings: components["schemas"]["Warnings"];
@@ -984,7 +1063,7 @@ export interface components {
             memo?: string | null;
         };
         AddressValidation: {
-            /** @description The network's address format rule; null when there is no rule for the network. Advisory: the source makes the binding check at creation. */
+            /** @description The network's address format rule; null when there is no rule for the network. Advisory: the source makes the binding check at creation. Network `lightning`: whether `address` is a mainnet BOLT11 invoice. */
             valid: boolean | null;
             /**
              * @description What was checked (extensible).
@@ -999,6 +1078,12 @@ export interface components {
                 valid: boolean | null;
             };
             warnings: components["schemas"]["Warnings"];
+            /** @description Network `lightning`: the BOLT11 invoice's amount and expiry (POST /orders needs the amount to equal the quote's and at least 10 more minutes); null otherwise. */
+            invoice: {
+                /** @description The invoice amount in BTC; null when it has none. */
+                amount: components["schemas"]["Decimal"] | null;
+                expires_at: components["schemas"]["Timestamp"];
+            } | null;
         };
         Me: {
             key: {
@@ -1024,6 +1109,8 @@ export interface components {
                 resets_at: components["schemas"]["Timestamp"] | null;
                 weights: {
                     create_order: number;
+                    /** @description POST /orders/{id}/resolve and PUT /orders/{id}/refund-address. */
+                    order_action: number;
                     default: number;
                 };
             };
@@ -1038,6 +1125,49 @@ export interface components {
             } | null;
             /** @description Always false on api.kotova.io. */
             mock: boolean;
+        };
+        /** @description Something the integrator can do for the order now, on its end user's instruction. Extensible: ignore action types you do not know. */
+        OrderAction: {
+            /**
+             * @description Extensible. `resolve`: POST /orders/{id}/resolve with one of `resolutions`. `set_refund_address`: PUT /orders/{id}/refund-address.
+             * @enum {string}
+             */
+            type: "resolve" | "set_refund_address";
+            /** @description `resolve` only: `continue` the swap, or `refund` the deposit; null for other types. */
+            resolutions: ("continue" | "refund")[] | null;
+            /**
+             * @description `on_file`: a refund uses the order's stored refund address (locked: a different one is 409 `refund_address_locked`). `required`: send `refund_address`.
+             * @enum {string}
+             */
+            refund_address: "on_file" | "required";
+            /** @description When the action stops being possible, or when the order resolves itself if nobody acts (`status_detail.auto_resolution_at`); null when unknown. */
+            available_until: components["schemas"]["Timestamp"] | null;
+        };
+        ResolveRequest: {
+            /**
+             * @description One of the `resolutions` of the order's `resolve` action.
+             * @enum {string}
+             */
+            resolution: "continue" | "refund";
+            /** @description `refund` only: where the refund goes, on the network the deposit came from. Absent: the order's refund address on file. Locked once on file: a different one is 409 `refund_address_locked`. */
+            refund_address?: string | null;
+            /** @description Memo of `refund_address` (needs it). */
+            refund_memo?: string | null;
+        };
+        RefundAddressRequest: {
+            /** @description Where a refund goes, on the network the deposit came from. */
+            refund_address: string;
+            /** @description Memo of `refund_address`. */
+            refund_memo?: string | null;
+        };
+        NotificationEmailRequest: {
+            /**
+             * Format: email
+             * @description The end user's e-mail address for Kotova's order e-mails (completed, refunded, action required, refund address rejected); null stops them. No disposable-domain check.
+             */
+            email: string | null;
+            /** @description The e-mails' language; absent keeps the current one (English by default). */
+            lang?: components["schemas"]["Lang"];
         };
     };
     responses: {
@@ -2356,6 +2486,8 @@ export interface operations {
                      *       "estimated_duration_seconds": 1500,
                      *       "quote_id": "q_5mJc2Vq9XkT3nR8bYw1LdP",
                      *       "partner_order_id": "shop-order-1042",
+                     *       "notification_email": null,
+                     *       "actions": [],
                      *       "provider": {
                      *         "name": "Kotova X",
                      *         "icon": {
@@ -2488,7 +2620,7 @@ export interface operations {
             };
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
-            /** @description An address or memo does not fit, or the quote's source needs a refund address. A source's refusal is `invalid_address` with `reason: rejected_by_source` and `field` `to_address`, `to_memo`, `refund_address` or `refund_memo` (+ `fields` when the source did not say which; + `sources_tried` when it was one of the quote's `fallback_sources`) — whether or not `retry_next_best_source` is on. */
+            /** @description An address or memo does not fit, or the quote's source needs a refund address. A source's refusal is `invalid_address` with `reason: rejected_by_source` and `field` `to_address`, `to_memo`, `refund_address` or `refund_memo` (+ `fields` when the source did not say which; + `sources_tried` when it was one of the quote's `fallback_sources`) — whether or not `retry_next_best_source` is on. Also 422 `min_receive_not_met` (see `min_receive_amount`) and 422 `invalid_lightning_invoice` (Lightning payouts). */
             422: {
                 headers: {
                     "X-Request-Id": components["headers"]["X-Request-Id"];
@@ -2715,6 +2847,467 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
+    resolveOrder: {
+        parameters: {
+            query?: {
+                /** @description Language of the source notice (en default). */
+                lang?: components["parameters"]["Lang"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The order id (`X-XXXXXX`, case-insensitive).
+                 * @example X-7KQ2ZD
+                 */
+                id: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "resolution": "refund",
+                 *       "refund_address": "bc1qexampleexampleexampleexampleexample0"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description The order, as stored after the action. Its status follows on the next read once the source has moved on. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            /** @description No such order for your account. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_not_found",
+                     *         "message": "No order with this id exists for your account.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_not_found"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The action is not available now (`action_not_available`, with the order's `actions`), the refund address is locked (`refund_address_locked`), or the source does not accept it yet (`source_not_ready`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The order is archived: orders can be read for 90 days after they are created (`created_at`). Use your own record of it. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_archived",
+                     *         "message": "This order is archived: orders can be read through the API for 90 days after they are created. Use your own record of it.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_archived"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            /** @description The refund address or memo does not fit (`invalid_address`: format, or `rejected_by_source` — the address was then removed from the order, whose status_detail.reason becomes `refund_address_rejected`; `memo_not_supported`), or a refund has no address (`refund_address_required`). */
+            422: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            /** @description The source refused the action (`source_error`, `retryable: false`, with `source_message`). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "source_error",
+                     *         "message": "The source refused the action.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "source": "changenow",
+                     *           "retryable": false,
+                     *           "source_message": "not_available"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#source_error"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    setOrderRefundAddress: {
+        parameters: {
+            query?: {
+                /** @description Language of the source notice (en default). */
+                lang?: components["parameters"]["Lang"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The order id (`X-XXXXXX`, case-insensitive).
+                 * @example X-7KQ2ZD
+                 */
+                id: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "refund_address": "bc1qexampleexampleexampleexampleexample0"
+                 *     }
+                 */
+                "application/json": components["schemas"]["RefundAddressRequest"];
+            };
+        };
+        responses: {
+            /** @description The order, as stored after the action. Its status follows on the next read once the source has moved on. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            /** @description No such order for your account. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_not_found",
+                     *         "message": "No order with this id exists for your account.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_not_found"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The action is not available now (`action_not_available`, with the order's `actions`), the refund address is locked (`refund_address_locked`), or the source does not accept it yet (`source_not_ready`). */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The order is archived: orders can be read for 90 days after they are created (`created_at`). Use your own record of it. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_archived",
+                     *         "message": "This order is archived: orders can be read through the API for 90 days after they are created. Use your own record of it.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_archived"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            /** @description The refund address or memo does not fit (`invalid_address`: format, or `rejected_by_source` — the address was then removed from the order, whose status_detail.reason becomes `refund_address_rejected`; `memo_not_supported`), or a refund has no address (`refund_address_required`). */
+            422: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            /** @description The source refused the action (`source_error`, `retryable: false`, with `source_message`). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "source_error",
+                     *         "message": "The source refused the action.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "source": "changenow",
+                     *           "retryable": false,
+                     *           "source_message": "not_available"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#source_error"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    setOrderNotificationEmail: {
+        parameters: {
+            query?: {
+                /** @description Language of the source notice (en default). */
+                lang?: components["parameters"]["Lang"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The order id (`X-XXXXXX`, case-insensitive).
+                 * @example X-7KQ2ZD
+                 */
+                id: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "email": "user@example.com",
+                 *       "lang": "en"
+                 *     }
+                 */
+                "application/json": components["schemas"]["NotificationEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description The order, as stored after the action. Its status follows on the next read once the source has moved on. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AffiliateInactive"];
+            /** @description No such order for your account. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_not_found",
+                     *         "message": "No order with this id exists for your account.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_not_found"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The order is archived: orders can be read for 90 days after they are created (`created_at`). Use your own record of it. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["X-Request-Id"];
+                    "X-Kotova-Weight": components["headers"]["X-Kotova-Weight"];
+                    "RateLimit-Policy": components["headers"]["RateLimit-Policy"];
+                    RateLimit: components["headers"]["RateLimit"];
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "order_archived",
+                     *         "message": "This order is archived: orders can be read through the API for 90 days after they are created. Use your own record of it.",
+                     *         "request_id": "req_8fK2mQ9xLp3vTz7nWc1bYd4h",
+                     *         "details": {
+                     *           "id": "X-7KQ2ZD"
+                     *         },
+                     *         "doc_url": "https://docs.kotova.io/x/api/errors#order_archived"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     validateAddress: {
         parameters: {
             query?: never;
@@ -2758,6 +3351,7 @@ export interface operations {
                      *         "supported": false,
                      *         "valid": null
                      *       },
+                     *       "invoice": null,
                      *       "warnings": []
                      *     }
                      */
@@ -2844,6 +3438,7 @@ export interface operations {
                      *         "resets_at": "2026-11-10T10:16:00Z",
                      *         "weights": {
                      *           "create_order": 50,
+                     *           "order_action": 10,
                      *           "default": 1
                      *         }
                      *       },

@@ -71,6 +71,11 @@ visitors; the details go to the server log.
   code), progress, transactions with explorer links, what to do when the order needs
   attention, and the notice of the source that executes the order. It refreshes every
   15 seconds until the order is final.
+- **Lightning payouts**: when the user receives BTC on Lightning, the recipient field
+  takes a Lightning invoice. The app reads the invoice's amount and expiry, quotes
+  exactly that amount at a fixed rate, and checks before the order is created that the
+  invoice still matches the offer and stays valid for at least 10 more minutes. See
+  [Lightning payouts](#lightning-payouts).
 - **Options**: freeze protection and switching sources off. Switching freeze protection
   on also switches to the variable rate when no source that cannot freeze funds offers
   a fixed rate (today Chainflip, variable only), as on app.kotova.io.
@@ -112,6 +117,7 @@ rate-limit headers (`RateLimit`, `RateLimit-Policy`, `X-RateLimit-Limit`,
 | Currency pickers | `GET /currencies`, `GET /sources` | With the key, like every endpoint the proxy forwards (weight 1 per API call). Cached for 60 s on the server, revalidated with the ETag; when the API fails or rate-limits, the last good copy (up to 1 hour old) is served. `lang` is limited to `en`, `de`, `it`, `es`, `fr`, `ru` (anything else becomes `en`), so the cache stays small. A pair is offered only when an enabled source serves both sides (`send_sources` and `receive_sources`). |
 | Live offer | `POST /quote` | Debounced. `amount_type` follows the field you type in. Sends `rate_type`, `exclude_sources`, `freeze_protection` and `lang`; the server adds `end_user_ip` and, if the API refuses it (400 with `details.field: end_user_ip`), asks once more without it. Renewed when `expires_at` passes, counted on the API's clock. |
 | Review order | `POST /addresses/validate` | Advisory format check of the recipient and refund addresses (and memos). |
+| Lightning invoice | `POST /addresses/validate` | Only when the user receives on Lightning: reads the pasted invoice's amount and expiry (`invoice`), debounced and cached per invoice. |
 | Create order | `POST /orders` | One `Idempotency-Key` per request body; see [Creating an order safely](#creating-an-order-safely). Fallback sources can take the API up to 90 s: the proxy waits up to 100 s, its function may run 110 s (`maxDuration`) and the browser waits 120 s. |
 | Order page | `GET /orders/{id}` | Only for orders created in this browser. Polled every 15 s while the tab is visible, until `is_final`. An order older than 90 days is archived (410 `order_archived`): the page says so and stops polling. |
 
@@ -203,11 +209,36 @@ needs the address, or fallback sources are skipped without one. The order page s
 does with it (`refund_address_forwarding`). A refund memo is offered when the quote says
 `requirements.refund_memo: "optional"`.
 
+## Lightning payouts
+
+A payout to Lightning pays an invoice of an exact amount, so the API takes it only in
+one shape (see [Lightning payouts](https://docs.kotova.io/x/api/orders#lightning-payouts)
+in the docs). `src/lib/kx/lightning.ts` and `src/components/SwapForm.tsx` follow it:
+
+- A receive leg with `address_format: "lightning_invoice"` is a Lightning payout. The
+  recipient field becomes **Lightning invoice**, the send amount can't be typed, and the
+  variable rate is switched off for that pair (the stored choice is kept for other
+  pairs).
+- The pasted invoice is read with `POST /addresses/validate`: a `lightning:` prefix is
+  dropped and the text lower-cased (BOLT11 is case-insensitive). Its amount becomes the
+  amount received, and the quote asks for it with `amount_type: "to"` and
+  `rate_type: "fixed"`. Before an invoice is pasted, the user may type the amount to see
+  the offer first, then create an invoice for exactly that amount.
+- The field says when the invoice is not a mainnet BOLT11 invoice, has no amount,
+  has more decimals than an order takes, has expired or has less than 10 minutes left.
+  For a BTC or XMR deposit it warns below 23 minutes, as app.kotova.io does: the payout
+  is made only once the deposit has confirmed.
+- **Review order** checks again that the invoice is for exactly the offer's amount and
+  still valid. `POST /orders` sends the invoice as `to_address`, and a 422
+  `invalid_lightning_invoice` marks the invoice field with what to change.
+
 ## Errors
 
 `src/lib/kx/errors.ts` turns every API error into a message and a next step, branching
 on `code`, never on `message`:
 
+- `invalid_lightning_invoice` marks the invoice field, with what to change
+  (`details.reason`).
 - `invalid_address` marks the input named by `details.field` (`to_address`, `to_memo`,
   `refund_address` or `refund_memo`) and, when the source did not say which, every
   field in `details.fields`. `memo_not_supported`, `refund_address_required` and
