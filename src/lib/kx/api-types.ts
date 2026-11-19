@@ -932,8 +932,15 @@ export interface components {
          *     - `amount_mismatch`: the deposit differs from the order (or is outside the source's limits).
          *     - `late_deposit`: the deposit arrived after the order expired.
          *     - `source_review`: the source holds the order for a review and resolves it itself.
-         *     - `payout_on_hold`: the source reports the swap done but holds the payout. Contact api@kotova.io with the order id.
+         *     - `payout_on_hold`: the source reports the swap done but holds the payout (FF.io), or could not send it yet and is handling it (Chainflip). Contact api@kotova.io with the order id.
          *     - `refund_address_rejected`: the source refused the refund address; the end user enters a new one at `resolve_url`.
+         *     - `deposit_below_minimum`: the deposit was below the source's minimum deposit (Chainflip). It is neither swapped nor refunded. A new deposit of at least the minimum to the same deposit address, within 24 hours of the order's creation, is swapped on its own; deposits do not add up. Contact api@kotova.io with the order id about the earlier deposit.
+         *     - `deposit_not_processed`: the source did not process the deposit (Chainflip); it was not swapped. Contact api@kotova.io with the order id.
+         *     - `deposit_rejected`: the source rejected the deposit and refunds it to the refund address (Chainflip; status `refunding`, then `refunded`).
+         *     - `output_below_minimum`: the swap's output was below the minimum the source can send on the destination network, so it was not sent (Chainflip). Contact api@kotova.io with the order id.
+         *     - `refund_below_minimum`: the refund was below the minimum the source can send, so nothing was returned (Chainflip). Contact api@kotova.io with the order id.
+         *     - `refund_on_hold`: the source could not send the refund yet and is handling it (Chainflip; status `refunding`).
+         *     - `payout_returned`: the source could not deliver the payout and returns it (Chainflip; status `refunding`, then `refunded`). Contact api@kotova.io with the order id if it does not arrive.
          *     - `other`.
          * @example amount_mismatch
          */

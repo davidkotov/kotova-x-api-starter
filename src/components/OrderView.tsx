@@ -69,11 +69,50 @@ const REASONS: Record<string, { title: string; body: (source: string) => string 
     title: 'The refund address was refused',
     body: (s) => `${s} refused the refund address. A new one is needed.`,
   },
+  // Chainflip's failures (status_detail.reason; see Order statuses in the API docs).
+  deposit_below_minimum: {
+    title: 'The deposit was below the minimum',
+    body: (s) =>
+      `${s} did not swap the deposit: it was below its minimum deposit, and ${s} does not refund such deposits. Within 24 hours of the order, a new deposit of at least the minimum to the same deposit address is swapped on its own; deposits do not add up.`,
+  },
+  deposit_not_processed: {
+    title: 'The deposit was not processed',
+    body: (s) => `${s} did not process the deposit, so it was not swapped.`,
+  },
+  deposit_rejected: {
+    title: 'The deposit was rejected',
+    body: (s) => `${s} rejected the deposit and refunds it to the refund address.`,
+  },
+  output_below_minimum: {
+    title: 'The payout was below the minimum',
+    body: (s) => `The amount to send was below the minimum ${s} can send on the destination network, so it was not sent.`,
+  },
+  refund_below_minimum: {
+    title: 'The refund was below the minimum',
+    body: (s) => `The refund was below the minimum ${s} can send, so nothing was returned.`,
+  },
+  refund_on_hold: {
+    title: 'Refund on hold',
+    body: (s) => `${s} could not send the refund yet and is handling it.`,
+  },
+  payout_returned: {
+    title: 'The payout is returned',
+    body: (s) => `${s} could not deliver the payout and returns it. Contact ${SUPPORT_CONTACT} with the order id if it does not arrive.`,
+  },
   other: {
     title: 'The source reported a problem',
     body: (s) => `${s} reported a problem with this order.`,
   },
 };
+
+/** Reasons only a person can resolve: the user is pointed to support with the order id. */
+const SUPPORT_REASONS: ReadonlySet<string> = new Set([
+  'payout_on_hold',
+  'deposit_below_minimum',
+  'deposit_not_processed',
+  'output_below_minimum',
+  'refund_below_minimum',
+]);
 
 const FALLBACK_REASON: Record<string, string> = {
   disabled: 'was not available',
@@ -366,7 +405,7 @@ export default function OrderView({ id: rawId }: { id: string }) {
                     <strong>{reason.title}</strong>
                   </p>
                   <p>{reason.body(order.source.name)}</p>
-                  {detail.reason === 'payout_on_hold' && !resolveUrl && (
+                  {SUPPORT_REASONS.has(detail.reason) && !resolveUrl && (
                     <p style={{ marginTop: 6 }}>
                       Contact {SUPPORT_CONTACT} with the order id {order.id}.
                     </p>
