@@ -30,9 +30,9 @@ pnpm dev                     # http://localhost:3020
 
 | Script | What it does |
 |---|---|
-| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js, on port 3020 |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | `next lint` |
+| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js 16 (React 19), on port 3020 |
+| `pnpm typecheck` | `next typegen && tsc --noEmit` (the route types first, so it works before a build) |
+| `pnpm lint` | `eslint .` (ESLint 9, flat config in `eslint.config.mjs`) |
 | `pnpm gen:api` | Regenerates `src/lib/kx/api-types.ts` from `openapi/openapi.v1.json` |
 | `pnpm check:api` | Fails when `src/lib/kx/api-types.ts` is out of date with `openapi/openapi.v1.json` |
 
@@ -50,6 +50,8 @@ with `NEXT_PUBLIC_`. `.env.example` lists them with comments.
 | `KOTOVA_END_USER_IP_HEADER` | no | A header your host sets to the visitor's IP. See [End-user IP](#end-user-ip). |
 | `TRUSTED_PROXY_HOPS` | no | How many proxies in front of the app append to `X-Forwarded-For`. See [End-user IP](#end-user-ip). |
 | `KOTOVA_DEV_END_USER_IP` | no | Development only: a public IP to send as `end_user_ip` from your machine. See [End-user IP](#end-user-ip). |
+| `RATE_LIMITS` | no | Overrides the per-visitor limits, or `off`. See [Rate limits](#rate-limits). |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | no | A Redis for those limits, shared by every instance of the app (Vercel's `KV_REST_API_URL` / `KV_REST_API_TOKEN` work too). See [Rate limits](#rate-limits). |
 
 Outside production the header shows which API host the app calls, and configuration
 errors say what is missing. In production (`NODE_ENV=production`) neither is shown to
@@ -276,6 +278,7 @@ src/app/page.tsx                swap page
 src/app/orders/[id]/page.tsx    order page
 src/components/                 UI (plain CSS in src/app/globals.css)
 src/lib/kx/server.ts            server settings: API base, key, end-user IP, session secret
+src/lib/kx/rate-limit.ts        per-visitor limits of /api/kx (memory or Upstash Redis)
 src/lib/kx/order-cookie.ts      the signed cookie of orders created in this browser
 src/lib/support.ts              SUPPORT_CONTACT: your support, shown to your users
 src/lib/kx/                     API types, client, catalogue, errors, helpers
@@ -322,14 +325,47 @@ need one are skipped. Set `KOTOVA_DEV_END_USER_IP` to your own public IP in
 `.env.local` to try them. It is used only when `NODE_ENV` is not `production` (so
 `pnpm dev`) and no trusted IP was found, and it must be a public address.
 
+## Rate limits
+
+Every call through the proxy spends your account's API budget, and an unfunded order
+counts toward your account's cap of open orders. So the proxy limits each visitor
+before it calls the API (`src/lib/kx/rate-limit.ts`), on any host:
+
+| Rule | Requests | Default |
+|---|---|---|
+| `orders` | `POST /api/kx/orders` | 10 per 600 s |
+| `quote` | `POST /api/kx/quote` | 30 per 60 s |
+| `validate` | `POST /api/kx/addresses/validate` | 20 per 60 s |
+| `order_status` | `GET /api/kx/orders/{id}` | 30 per 60 s |
+| `all` | everything under `/api/kx` | 120 per 60 s |
+
+- A request counts toward its own rule and `all`. Windows are fixed (they start on
+  multiples of their length).
+- Over a limit the proxy answers **429 `rate_limited`** with `Retry-After`, without
+  calling the API: no order was created, and the page waits and asks again.
+- An order request sent again with the same `Idempotency-Key` (the page does that when
+  an answer got lost) is not counted twice, so its outcome can always be read.
+- **Visitors** are told apart by the IP from `KOTOVA_END_USER_IP_HEADER` or
+  `TRUSTED_PROXY_HOPS` (see [End-user IP](#end-user-ip)); an IPv6 address counts as
+  its /64. Without either setting, all visitors share one count. The IP is stored only
+  as a salted hash.
+- **Where the counts live:** with `UPSTASH_REDIS_REST_URL` and
+  `UPSTASH_REDIS_REST_TOKEN` (or Vercel's `KV_REST_API_URL` / `KV_REST_API_TOKEN`) in
+  that Redis, over its REST API, shared by every instance; use a database of its own
+  for this app (keys start with `kxrl:`). Otherwise in the server process: exact on one
+  long-running server, approximate on a serverless host, where each instance counts
+  on its own. If the Redis cannot be reached, the counts fall back to the process.
+- **`RATE_LIMITS`** overrides them: `off`, or a comma-separated list of
+  `name=limit/seconds` or `name=off`, e.g. `orders=5/600,quote=60/60`. Windows are at
+  most 3600 s.
+
 ## Before you deploy
 
 This is fine for local use as it is. Before you put it on the internet:
 
-- **Rate-limit** `/api/kx/quote`, `/api/kx/addresses/validate`, `/api/kx/orders` and
-  `/api/kx/orders/{id}` per visitor (at your host, a WAF or a middleware): every call
-  spends your account's API budget, and an order read may refresh the order at its
-  source.
+- **Rate limits** are built in (see [Rate limits](#rate-limits)). Set the visitor IP
+  (`KOTOVA_END_USER_IP_HEADER` or `TRUSTED_PROXY_HOPS`) so each visitor has their own
+  count, and on a serverless host a Redis so the counts are shared.
 - **Set `APP_SESSION_SECRET`** (32+ characters). Keep it stable: a new value makes the
   orders created before it unreadable in this app.
 - **End-user IP**: choose `KOTOVA_END_USER_IP_HEADER` or `TRUSTED_PROXY_HOPS` for your
@@ -362,9 +398,9 @@ This is fine for local use as it is. Before you put it on the internet:
 
 ## Roadmap
 
-- **Next.js 15/16 and React 19.** The app is on Next.js 14.2 and React 18 for now. The
-  planned upgrade moves to Next.js 15 or 16 with React 19, ESLint 9 with a flat config,
-  and `eslint .` instead of `next lint` (removed in Next.js 16).
+- **React Compiler lint rules.** `eslint-plugin-react-hooks` 7 reports two of its
+  guidelines (`set-state-in-effect`, `refs`) at 15 places; `eslint.config.mjs` keeps
+  them as warnings until those places are refactored.
 
 ## License
 

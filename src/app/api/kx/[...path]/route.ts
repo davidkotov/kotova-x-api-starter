@@ -16,10 +16,9 @@
 // upstream_invalid_response), with the headers the page needs: Retry-After,
 // X-Request-Id, Idempotent-Replayed, the rate-limit headers and the API's Date.
 //
-// Before you deploy this publicly, rate-limit /api/kx/quote,
-// /api/kx/addresses/validate, /api/kx/orders and /api/kx/orders/{id} per
-// visitor: every call spends your account's API budget (README, "Before you
-// deploy").
+// Every call spends your account's API budget, so each visitor is limited
+// before the API is called (src/lib/kx/rate-limit.ts; README, "Rate limits"):
+// over a limit the proxy answers 429 rate_limited with Retry-After.
 
 import { NextResponse, type NextRequest } from 'next/server';
 import {
@@ -31,8 +30,10 @@ import {
   isLoopbackHost,
   sessionSecret,
   SHOW_CONFIG_DETAILS,
+  visitorAddress,
   warnOnce,
 } from '@/lib/kx/server';
+import { checkVisitorLimits, type LimitName } from '@/lib/kx/rate-limit';
 import { isOrderId, ORDERS_COOKIE, orderCookieWith, readOrderIds } from '@/lib/kx/order-cookie';
 import type { paths } from '@/lib/kx/api-types';
 import type { Lang, QuoteRequest } from '@/lib/kx/types';
@@ -122,11 +123,26 @@ function normaliseLang(value: string | null): Lang {
 // ----------------------------------------------------------------------------- answers of the proxy itself
 
 /** An error in the API's own shape, for failures of this proxy. */
-function proxyError(status: number, code: string, message: string, details?: Record<string, unknown>) {
+function proxyError(
+  status: number,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+  extraHeaders?: Record<string, string>,
+) {
   return NextResponse.json(
     { error: { code, message, request_id: null, ...(details ? { details } : {}), doc_url: 'https://docs.kotova.io/x/api/errors' } },
-    { status, headers: { 'Cache-Control': 'no-store' } },
+    { status, headers: { 'Cache-Control': 'no-store', ...extraHeaders } },
   );
+}
+
+/** The per-visitor limits a request counts toward (src/lib/kx/rate-limit.ts). */
+function limitNames(route: Route): LimitName[] {
+  if (route.path === '/orders') return ['orders', 'all'];
+  if (route.path === '/quote') return ['quote', 'all'];
+  if (route.path === '/addresses/validate') return ['validate', 'all'];
+  if (route.path === '/orders/{id}') return ['order_status', 'all'];
+  return ['all'];
 }
 
 /** A missing or wrong setting: logged on the server; shown in detail only outside production. */
@@ -314,6 +330,25 @@ async function handle(req: NextRequest, rawSegments: string[]): Promise<Response
     }
   }
 
+  // Per-visitor limits, before the API is called. Over a limit nothing was
+  // sent, so an order request was not created: the API's own code
+  // rate_limited, which the page waits out (Retry-After).
+  const idemHeader = route.path === '/orders' ? req.headers.get('idempotency-key') : null;
+  const limited = await checkVisitorLimits({
+    names: limitNames(route),
+    visitor: visitorAddress(req.headers),
+    repeatKey: idemHeader && IDEMPOTENCY_KEY.test(idemHeader) ? idemHeader : null,
+  });
+  if (!limited.ok) {
+    return proxyError(
+      429,
+      'rate_limited',
+      `Too many requests from your connection. Try again in ${limited.retryAfterSeconds} s.`,
+      { reason: 'visitor_limit', rule: limited.name, limit: limited.limit, window_seconds: limited.windowSeconds },
+      { 'Retry-After': String(limited.retryAfterSeconds) },
+    );
+  }
+
   const base = apiBase();
   if (!base.ok) return notConfigured(base.problem);
   const key = route.keyed ? apiKey() : null;
@@ -444,12 +479,13 @@ function createdOrderId(status: number, json: unknown): string | null {
   return null;
 }
 
-type Ctx = { params: { path?: string[] } };
+// Next.js 15+: route params arrive as a Promise.
+type Ctx = { params: Promise<{ path?: string[] }> };
 
 export async function GET(req: NextRequest, ctx: Ctx) {
-  return handle(req, ctx.params.path ?? []);
+  return handle(req, (await ctx.params).path ?? []);
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
-  return handle(req, ctx.params.path ?? []);
+  return handle(req, (await ctx.params).path ?? []);
 }

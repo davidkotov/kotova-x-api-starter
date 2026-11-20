@@ -14,6 +14,9 @@ import 'server-only';
 //                               X-Forwarded-For
 //   KOTOVA_DEV_END_USER_IP      optional, development only; a public IP to send as
 //                               end_user_ip when no trusted one is found
+//   RATE_LIMITS                 optional; per-visitor limits of /api/kx (rate-limit.ts)
+//   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN (or KV_REST_API_URL /
+//   KV_REST_API_TOKEN)          optional; a shared store for those limits
 //
 // See README.md, "Configuration" and "Before you deploy".
 
@@ -157,13 +160,43 @@ export function allowedOrigins(): string[] {
  * the IP can be tried from a local machine.
  */
 export function endUserIp(headers: Headers): string | null {
-  const trusted = trustedClientIp(headers);
+  const trusted = trustedClientAddress(headers, publicUnicastIp);
   if (trusted) return trusted;
   if (!IS_PRODUCTION) return devEndUserIp();
   return null;
 }
 
-function trustedClientIp(headers: Headers): string | null {
+/**
+ * Who a visitor is for the per-visitor limits of /api/kx (rate-limit.ts):
+ * the address from the same trusted source as end_user_ip
+ * (KOTOVA_END_USER_IP_HEADER, TRUSTED_PROXY_HOPS), but any valid address,
+ * private ones too (a server on a LAN, local development). An IPv6 address
+ * counts as its /64: one connection usually holds a whole /64. Null when no
+ * trusted source is set or it carries no valid address.
+ */
+export function visitorAddress(headers: Headers): string | null {
+  return trustedClientAddress(headers, limitAddress);
+}
+
+/** A valid IPv4 address as it is, an IPv6 address as its /64; null for anything else. */
+function limitAddress(raw: string): string | null {
+  let text = raw.trim();
+  if (!text || text.length > MAX_IP_TEXT) return null;
+  const bracketed = /^\[([^\]]+)\](?::\d{1,5})?$/.exec(text);
+  if (bracketed) text = bracketed[1];
+  text = text.replace(/%[0-9a-zA-Z]+$/, '');
+  text = text.replace(/^::ffff:(?=\d{1,3}(\.\d{1,3}){3}$)/i, '');
+  const v4WithPort = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/.exec(text);
+  if (v4WithPort) text = v4WithPort[1];
+  if (!text.includes(':')) return ipv4ToNumber(text) !== null ? text : null;
+  const groups = ipv6Groups(text);
+  if (!groups) return null;
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) return numberToIpv4(groups[6] * 0x10000 + groups[7]);
+  return `${groups.slice(0, 4).map((g) => g.toString(16)).join(':')}::/64`;
+}
+
+/** The visitor's address from the trusted header or proxy hop, read by `parse`. */
+function trustedClientAddress(headers: Headers, parse: (raw: string) => string | null): string | null {
   const headerName = (process.env.KOTOVA_END_USER_IP_HEADER || '').trim().toLowerCase();
   if (headerName) {
     if (headerName === 'x-forwarded-for' || headerName === 'forwarded') {
@@ -174,7 +207,7 @@ function trustedClientIp(headers: Headers): string | null {
       const value = headers.get(headerName);
       // One address only: a list means something appended to the header.
       if (value && !value.includes(',')) {
-        const ip = publicUnicastIp(value);
+        const ip = parse(value);
         if (ip) return ip;
       }
     }
@@ -186,7 +219,7 @@ function trustedClientIp(headers: Headers): string | null {
     if (xff) {
       const entries = xff.split(',').map((s) => s.trim());
       const entry = entries.length >= hops ? entries[entries.length - hops] : '';
-      const ip = entry ? publicUnicastIp(entry) : null;
+      const ip = entry ? parse(entry) : null;
       if (ip) return ip;
     }
   }
