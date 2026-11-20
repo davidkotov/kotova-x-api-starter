@@ -4,7 +4,7 @@ An example integration of the [Kotova X API](https://docs.kotova.io/x/api), and 
 starting point for your own. It is a small Next.js app that gets live quotes, creates
 orders and tracks them until they finish, with your API key kept on the server.
 
-**Live demo:** Kotova runs this app at https://swapstarter.kotova.io, against the
+**Live demo:** Kotova runs this app at https://convert.kotova.io, against the
 production API. Orders there are real orders with real funds.
 
 > **Example code, no warranty.** This repository is provided "as is" under the
@@ -205,8 +205,9 @@ The refund address sits in the same form as the recipient address. It is marked
 the order, so a refund needs no extra step, and fallback sources that need one stay
 eligible. A hint under the field appears only when it asks for action: the source
 needs the address, or fallback sources are skipped without one. The order page shows
-`refund.forwarded` and, when the address was not sent with the order, what the source
-does with it (`refund_address_forwarding`). A refund memo is offered when the quote says
+the refund address but not what the source does with it: whether it went with the
+order (`refund.forwarded`, the warning `refund_address_on_file`) is for you, not your
+end user, as on app.kotova.io. A refund memo is offered when the quote says
 `requirements.refund_memo: "optional"`.
 
 ## Lightning payouts

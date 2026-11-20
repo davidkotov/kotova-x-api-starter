@@ -20,7 +20,6 @@ import { describeKxError, type DescribedError } from '@/lib/kx/errors';
 import { SUPPORT_CONTACT } from '@/lib/support';
 import { trimAmount } from '@/lib/kx/decimal';
 import { findRecentOrder, type RecentOrder } from '@/lib/kx/recent-orders';
-import { refundForwarding, refundOnFileHint } from '@/lib/kx/refund';
 import { safeHttpsUrl } from '@/lib/kx/safe-url';
 import { formatCountdown, formatDuration, formatTime, shortAddress } from '@/lib/format';
 import type { Order, OrderStatus } from '@/lib/kx/types';
@@ -273,11 +272,13 @@ export default function OrderView({ id: rawId }: { id: string }) {
   const stepIndex = STEPS.findIndex((s) => s.status === order.status);
   const detail = order.status_detail;
   const reason = detail ? REASONS[detail.reason] ?? REASONS.other : null;
-  // GET /sources says how the order's source uses a refund address.
-  const forwarding = refundForwarding(catalog?.sourceBySlug.get(order.source.slug));
   const depositTx = order.transactions.deposit;
   const memoLabel = order.deposit.memo_label || 'Memo';
-  const createWarnings = (recent?.warnings ?? []).filter((w) => w.code !== 'source_fallback');
+  // How the source uses the refund address (refund_address_on_file) is not the
+  // end user's concern: like app.kotova.io, the page does not mention it.
+  const createWarnings = (recent?.warnings ?? []).filter(
+    (w) => w.code !== 'source_fallback' && w.code !== 'refund_address_on_file',
+  );
   // Links from the API are used only when they are https.
   const resolveUrl = safeHttpsUrl(detail?.resolve_url);
   const trackingUrl = safeHttpsUrl(order.source.tracking_url);
@@ -503,9 +504,6 @@ export default function OrderView({ id: rawId }: { id: string }) {
                 <>
                   <span className="mono">{order.refund.address}</span>
                   {order.refund.memo && <span className="mono faint"> · {order.refund.memo}</span>}
-                  <span className="hint" style={{ display: 'block' }}>
-                    {order.refund.forwarded ? `Sent to ${order.source.name} with the order.` : refundOnFileHint(order.source.name, forwarding)}
-                  </span>
                 </>
               ) : (
                 <span className="faint">None. A refund would need an extra step.</span>

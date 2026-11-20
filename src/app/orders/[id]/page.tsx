@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import OrderView from '@/components/OrderView';
 
-export const metadata: Metadata = { title: 'Order | Swap starter' };
+export const metadata: Metadata = { title: 'Order | Convert Crypto' };
 
 export default function OrderPage({ params }: { params: { id: string } }) {
   // A stray "%" in the URL must not become a 500: the id is checked by OrderView.

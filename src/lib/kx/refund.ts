@@ -6,33 +6,7 @@
 // so a refund needs no extra step, and fallback sources that need one stay
 // eligible.
 
-import type { FallbackSource, QuoteSource, RefundAddressForwarding, SourceInfo } from './types';
-
-/**
- * How a source uses the refund address (`refund_address_forwarding`), from a
- * quote's source block or GET /sources. An order's own source block does not
- * carry it; the order says `refund.forwarded` instead.
- */
-export function refundForwarding(source: QuoteSource | SourceInfo | null | undefined): RefundAddressForwarding | null {
-  return source?.refund_address_forwarding ?? null;
-}
-
-/**
- * For an order whose refund address was not sent to the source
- * (`refund.forwarded: false`). The switch ends in `default` because the value
- * is an extensible enum: a value this app does not know yet gets the generic
- * wording.
- */
-export function refundOnFileHint(sourceName: string, forwarding: RefundAddressForwarding | null): string {
-  switch (forwarding) {
-    case 'when_needed':
-      return `${sourceName} takes it only when a refund is needed; until then it is kept on file.`;
-    case 'none':
-      return `${sourceName} handles refunds itself; the address is kept for support.`;
-    default:
-      return `Not sent to ${sourceName} with the order; it is kept on file.`;
-  }
-}
+import type { FallbackSource } from './types';
 
 /** Fallback sources that are skipped when the order has no refund address. */
 export function fallbacksNeedingRefund(fallbacks: readonly FallbackSource[]): FallbackSource[] {
